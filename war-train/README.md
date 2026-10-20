@@ -41,29 +41,49 @@ EventSub. The render/test tools also need Playwright and ffmpeg.
 | 5 | 10–13 s | Heavy artillery wagon: 3 synchronized volleys bursting in the sky, `THANK YOU, SUB GIFTERS!`, recent gifter roster with crowns, animated total counter |
 | 6 | 13–15 s | Rear guard caboose exits right, red tail lights fade into smoke, rails and embers fade to fully transparent, ready to replay |
 
-When several gifters ride in one pass (up to `maxGiftersPerRun`, default 3), each extra wagon adds
-`extraGifterSeconds` (2.2 s) to scene 3. Anyone beyond that rides the next pass.
+Each gifter wagon in a pass (up to `maxWagonsPerRun`, default 6) adds `extraGifterSeconds` (2.2 s)
+to scene 3, plus extra time for big SUB BOMBs. Anyone beyond that rides the next pass.
 
-## SUB BOMB killstreaks
+## Wagons, SUB BOMBs, hype levels and themes
 
-Big gifts trigger a cinematic strike while the gifter's cannon wagon is on screen. The pass gets
-longer so the strike has time to play out, and each strike shows a killstreak card with the gifter's name.
+**Who gets a wagon**
+- **Small gifts (1–4 subs)** ride a shared **SUB SQUAD** wagon with 5 seats. Each seat shows an
+  avatar shield, a crown and the gifter's own nameplate and counter. Six small gifters fill one
+  full squad wagon and start a second.
+- **Every SUB BOMB (5+ subs)** gets its own **SUB GIFTER cannon wagon** and a killstreak.
+- A pass carries up to `maxWagonsPerRun` gifter wagons (default 6). The rest wait for the next
+  pass and never interrupt the current one.
 
-| Gifts | Killstreak | What happens | Extra pass time |
+**SUB BOMB killstreaks.** Bigger gifts get bigger animations. Within a tier the strike scales with
+the number of gifts (`POWER ×1.0` up to `×2.4`): more jets, a second gunship, extra bombers, and a
+taller, wider nuke. The killstreak card shows the power.
+
+| Gifts | Killstreak | Base effect | When it scales up |
 |---|---|---|---|
-| 1–4 | REINFORCEMENTS | Killstreak card + cannon salute | 0 s |
-| 5+ | PRECISION AIRSTRIKE | 3 jets with contrails fire missiles into the horizon | +0.5 s |
-| 10+ | CHOPPER GUNNER | Attack helicopter with searchlight strafes the ground (minigun + rockets) | +1.4 s |
-| 25+ | CARPET BOMBING | Heavy bomber lays a wall of fire across the screen | +1.6 s |
-| 50+ | TACTICAL NUKE | Red alarm + 3-2-1 countdown, white-out flash, ground shockwave, mushroom cloud | +3.6 s |
+| 5+ | PRECISION AIRSTRIKE | 3 jets with contrails fire missiles into the horizon | Up to 7 jets, 3 missiles each |
+| 10+ | CHOPPER GUNNER | Gunship with searchlight, minigun and rockets | Second gunship, more rockets |
+| 25+ | CARPET BOMBING | Bomber lays a wall of fire | Up to 3 bombers, denser and bigger blasts |
+| 50+ | TACTICAL NUKE | Countdown, white-out, shockwave, mushroom cloud | Bigger fireball and cloud, wider shockwave, longer |
 
-Thresholds, labels and timing are in `config.killstreaks`. The ambient battlefield (distant
-impacts, flak, searchlights) runs during every pass; `?war=0` turns it off and `?war=0.5` halves it.
-The train looks worn and battle-damaged (rust streaks, grime, scratches, bullet holes) and has burning
-damage on some wagons. Its size is set by `config.trainScale` (default 1.15).
+**Hype train level = more attacks.** Each level makes the ambient battlefield heavier and adds
+attacks to the pass: level 2 adds a jet flyby, level 3 a gunship, level 4 carpet bombing, and
+level 5 a second airstrike. The heavy artillery fires 3 volleys at level 1, rising to 6 volleys at level 4 and above.
 
-Render a showcase with every killstreak:
-`NODE_PATH=$(npm root -g) node tools/render-webm.cjs dist 30 5,10,25,50`
+**Realistic explosions.** Flames, fireballs and smoke are procedural noise textures. Each explosion
+runs from a white flash to a turbulent fireball, then fire tongues that roll into fire-lit smoke.
+That smoke turns into a dark climbing column and finally thins to gray. Explosions also throw
+burning debris with smoke trails, dirt clods and a dust skirt along the ground.
+
+**Colour themes.** The train is polished metal with specular sheen. Set it with `config.theme`,
+`?theme=…` or the preview dropdown:
+`steel` (blue steel, default), `chrome`, `blackgold`, `crimson`, `desert`, `arctic`, `toxic`.
+The accent colour (neon, hazard stripes, nameplates) follows the theme.
+
+The ambient battlefield (distant impacts, flak, searchlights) can be toned down with `?war=0.5`
+or turned off with `?war=0`.
+
+Render a showcase (4 small gifters + 4 SUB BOMBs at hype level 4):
+`NODE_PATH=$(npm root -g) node tools/render-webm.cjs dist 30 2,1,3,1,5,10,25,100 4`
 
 ## Folder structure
 
@@ -124,7 +144,8 @@ alert, or loop it.
 | `volume` | `0`–`1` | `0.5` |
 | `quality` | `high` / `low` | `high` |
 | `war` | `0`–`1` ambient battlefield intensity | `1` |
-| `maxGifters` | gifter wagons per pass | `3` |
+| `maxWagons` | gifter wagons per pass | `6` |
+| `theme` | `steel` `chrome` `blackgold` `crimson` `desert` `arctic` `toxic` | `steel` |
 | `avatars` | `decapi` to look up avatars by username (public service, no token) | off |
 | `persist` | `0` to not remember totals/recent gifters | on |
 
@@ -184,6 +205,7 @@ Call `window.WarTrain.handle({...})` from any script on the page, or POST to `/a
 - **Scene timing / choreography:** `js/show/run.js` → `buildCues()` and the motion keyframes `K`.
 - **Sounds:** put files in `assets/sfx/` and set `sound.files.{rumble,whistle,clank,cannon,reload,steam,sting}`.
   Hooks without a file use the built-in placeholder synth.
+- **SquadWagon** takes up to 5 `{ username, avatarUrl, giftCount }` members.
 - **GifterCannonWagon** takes `{ username, avatarUrl, giftCount, tier, eventId }`. Rank badge by
   gift count: 1–4 private (1 chevron), 5–9 corporal, 10–19 sergeant, 20–49 colonel (star), 50+ general (crown).
 

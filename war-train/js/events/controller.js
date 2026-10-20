@@ -119,18 +119,38 @@ window.WT = window.WT || {};
 
     startRun(demo) {
       const cfg = this.cfg;
-      let gifters, recruits, hype, recent, counter;
+      let gifters, recruits, hype, recent, counter, wagons;
       if (demo) {
         // preview / prerender pass: rotate through the demo gifters, never touch real stats
-        const d = cfg.demo.gifters, i = this.demoIdx++ % d.length;
-        gifters = [Object.assign({}, d[i])];
+        const d = cfg.demo.gifters, i = this.demoIdx++;
+        const bombs = d.filter((x) => x.giftCount >= cfg.bombMin), small = d.filter((x) => x.giftCount < cfg.bombMin);
+        const bomb = Object.assign({}, bombs[i % Math.max(1, bombs.length)] || d[i]);
+        const squadMembers = (cfg.demo.squad || small).map((x) => Object.assign({}, x));
+        gifters = squadMembers.concat([bomb]);
+        wagons = [{ type: 'squad', members: squadMembers }, { type: 'bomb', g: bomb }];
         recruits = cfg.demo.recruits.slice();
         hype = Object.assign({}, cfg.demo.hype);
-        recent = d.slice(i).concat(d.slice(0, i));
+        recent = gifters.slice().reverse().concat(d).filter((g, k, arr) => arr.findIndex((x) => x.username === g.username) === k).slice(0, 5);
         const base = 120 + i * 7;
-        counter = [base, base + gifters[0].giftCount];
+        counter = [base, base + gifters.reduce((a, g) => a + g.giftCount, 0)];
       } else {
-        gifters = this.pendingGifters.splice(0, cfg.maxGiftersPerRun);
+        // every SUB BOMB (≥ bombMin gifts) gets its own cannon wagon; smaller gifts share squad wagons of 5
+        gifters = [];
+        wagons = [];
+        let squad = null;
+        while (this.pendingGifters.length) {
+          const g = this.pendingGifters[0];
+          const bomb = g.giftCount >= cfg.bombMin;
+          const needs = bomb || !squad || squad.members.length >= 5;
+          if (needs && wagons.length >= cfg.maxWagonsPerRun) break;
+          this.pendingGifters.shift();
+          gifters.push(g);
+          if (bomb) wagons.push({ type: 'bomb', g });
+          else {
+            if (!squad || squad.members.length >= 5) { squad = { type: 'squad', members: [] }; wagons.push(squad); }
+            squad.members.push(g);
+          }
+        }
         recruits = this.pendingRecruits.splice(0, 4);
         hype = Object.assign({}, this.hype, this.pendingHype || {});
         this.pendingHype = null;
@@ -140,7 +160,7 @@ window.WT = window.WT || {};
         const thisRun = gifters.reduce((a, g) => a + g.giftCount, 0);
         counter = [this.totalGifts, this.totalGifts + thisRun];
       }
-      this.run = new WT.Run(this, { gifters, recruits, hype, recent, counter, demo: !!demo });
+      this.run = new WT.Run(this, { gifters, wagons, recruits, hype, recent, counter, demo: !!demo });
       this.runT = 0;
       this.wakeAt = Infinity;
       this.emit('run', this.run);

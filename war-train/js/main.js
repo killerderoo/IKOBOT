@@ -18,6 +18,7 @@ window.WT = window.WT || {};
     const exportMode = params.get('export') === '1';
 
     await waitFonts(3000);
+    WT.applyTheme(cfg.theme);
 
     const fx = new WT.FX(cfg.quality);
     WT.sprites = fx.sprites;
@@ -59,6 +60,7 @@ window.WT = window.WT || {};
       mock: WT.mock,
       setSound: (on) => sound.setEnabled(on),
       replayDemo: () => { if (!ctrl.run) ctrl.startRun(true); },
+      setTheme: (name) => { cfg.theme = name; WT.applyTheme(name); }, // applies from the next train pass
       // Export helpers (used by tools/render-webm.mjs): step exactly one 60fps frame and return a PNG.
       exportFrame: () => { ctrl.tick(STEP); render(); return canvas.toDataURL('image/png'); },
       step: (n) => { for (let i = 0; i < n; i++) ctrl.tick(STEP); render(); },

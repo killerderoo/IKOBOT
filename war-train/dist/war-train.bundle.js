@@ -132,7 +132,9 @@ window.WT = window.WT || {};
 
     showDuration: 15,       // one train pass with one gifter wagon
     extraGifterSeconds: 2.2,// each additional gifter wagon in the same pass adds this much
-    maxGiftersPerRun: 3,    // more gifters wait for the next pass (queued, never interrupted)
+    maxGiftersPerRun: 3,    // (legacy) see maxWagonsPerRun
+    maxWagonsPerRun: 6,     // gifter wagons per pass; the rest wait for the next pass (queued, never interrupted)
+    bombMin: 5,             // gifts ≥ this get their own SUB BOMB cannon wagon; smaller gifts share squad wagons (5 seats)
     aggregateWindowMs: 1800,// gifts from the same user inside this window merge into one wagon
     startDelayMs: 1200,     // wait a moment after the first event so bulk gifts can arrive
     triggerOn: { sub: true, resub: true, gift: true, hypetrain: true },
@@ -159,6 +161,7 @@ window.WT = window.WT || {};
       { min: 25, kind: 'carpet', label: 'CARPET BOMBING', extra: 1.6 },
       { min: 50, kind: 'nuke', label: 'TACTICAL NUKE', extra: 3.6 },
     ],
+    theme: 'steel',         // steel | chrome | blackgold | crimson | desert | arctic | toxic
     warIntensity: 1,        // 0..1 ambient battlefield (distant explosions, flak, searchlights)
     trainScale: 1.15,       // size of the train on screen
 
@@ -187,6 +190,12 @@ window.WT = window.WT || {};
         { username: 'Warlord_Wim', giftCount: 50, tier: '1000' },
         { username: 'PvtRyan', giftCount: 1, tier: '1000' },
       ],
+      squad: [
+        { username: 'PvtRyan', giftCount: 1, tier: '1000' },
+        { username: 'Kilo141', giftCount: 3, tier: '1000' },
+        { username: 'LtLemon', giftCount: 2, tier: '1000' },
+        { username: 'SnipeQueen', giftCount: 1, tier: '1000' },
+      ],
       recruits: [
         { username: 'PvtPixel', type: 'sub' },
         { username: 'MajorTom_NL', type: 'resub', months: 14 },
@@ -213,10 +222,12 @@ window.WT = window.WT || {};
     if (p.get('source')) o.source = p.get('source');
     if (p.get('sse')) o.sseUrl = p.get('sse');
     if (p.get('quality')) o.quality = p.get('quality');
+    if (p.get('theme')) o.theme = p.get('theme');
     if (p.get('war')) o.warIntensity = Math.max(0, Math.min(1, +p.get('war')));
     if (p.get('avatars')) o.avatarLookup = p.get('avatars');
     if (p.get('persist') === '0') o.persist = false;
-    if (p.get('maxGifters')) o.maxGiftersPerRun = Math.max(1, +p.get('maxGifters') || 3);
+    if (p.get('maxGifters')) o.maxWagonsPerRun = Math.max(1, +p.get('maxGifters') || 6);
+    if (p.get('maxWagons')) o.maxWagonsPerRun = Math.max(1, +p.get('maxWagons') || 6);
     if (p.get('sound') === '1') o.sound = { enabled: true };
     if (p.get('volume')) (o.sound = o.sound || {}).volume = +p.get('volume');
     return o;
@@ -415,6 +426,75 @@ window.WT = window.WT || {};
     return c;
   }
 
+  // ---- procedural textures (value-noise fBm) ------------------------------------------
+  function noise2(seed) {
+    const N = 64, grid = new Float32Array(N * N), r = U.rng(seed);
+    for (let i = 0; i < grid.length; i++) grid[i] = r();
+    const at = (x, y) => grid[(y & 63) * N + (x & 63)];
+    const n = (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1);
+      return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+    };
+    return (x, y) => { let s = 0, amp = 0.5, f = 1; for (let o = 0; o < 5; o++) { s += amp * n(x * f, y * f); f *= 2.03; amp *= 0.5; } return s / 0.96875; };
+  }
+  const sstep = (a, b, x) => { const t = U.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+  // Billowing smoke puff: ragged noisy edge, self-shadowed (lit from `lightDir`: -1 = from above, 1 = from below).
+  function billow(dark, light, seed, lightDir, alpha) {
+    const S = 128, c = U.canvas(S, S), x = c.getContext('2d'), img = x.createImageData(S, S), f = noise2(seed);
+    for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+      const dx = (px - S / 2) / (S / 2), dy = (py - S / 2) / (S / 2), d = Math.sqrt(dx * dx + dy * dy);
+      const i = (py * S + px) * 4;
+      if (d >= 1) { img.data[i + 3] = 0; continue; }
+      const n = f(px * 0.05 + seed * 7, py * 0.05);
+      const edge = 1 - sstep(0.3, 1.0, d + (n - 0.5) * 0.65);
+      const dens = U.clamp(edge * (0.45 + 0.85 * n), 0, 1);
+      const lit = U.clamp(0.45 + lightDir * dy * 0.6 - dx * 0.12 + (n - 0.5) * 0.7, 0, 1);
+      img.data[i] = dark[0] + (light[0] - dark[0]) * lit;
+      img.data[i + 1] = dark[1] + (light[1] - dark[1]) * lit;
+      img.data[i + 2] = dark[2] + (light[2] - dark[2]) * lit;
+      img.data[i + 3] = 255 * Math.pow(dens, 1.3) * alpha;
+    }
+    x.putImageData(img, 0, 0);
+    return c;
+  }
+
+  // Fire colour ramp: deep red → orange → yellow → white-hot.
+  function ramp(v) {
+    if (v > 0.82) return [255, 248, 215];
+    if (v > 0.6) return [255, 200 + 45 * (v - 0.6) / 0.22, 90 + 110 * (v - 0.6) / 0.22];
+    if (v > 0.35) return [255, 110 + 90 * (v - 0.35) / 0.25, 25 + 65 * (v - 0.35) / 0.25];
+    return [150 + 105 * v / 0.35, 30 + 80 * v / 0.35, 10 + 15 * v / 0.35];
+  }
+
+  // Turbulent flame tongue (tall) or fireball (round); `temp` scales how hot the colours read.
+  function flameSprite(seed, temp, round) {
+    const W = round ? 128 : 96, H = round ? 128 : 160, c = U.canvas(W, H), x = c.getContext('2d'), img = x.createImageData(W, H), f = noise2(seed);
+    const cx = W / 2, cy = round ? H / 2 : H * 0.66;
+    for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+      const i = (py * W + px) * 4;
+      const n = f(px * 0.06 + seed * 3, py * 0.045 + seed);
+      let d;
+      if (round) {
+        const dx = (px - cx) / (W / 2), dy = (py - cy) / (H / 2);
+        d = Math.sqrt(dx * dx + dy * dy) + (n - 0.5) * 0.55;
+      } else {
+        const dx = (px - cx) / (W * 0.42), up = py < cy;
+        const dy = (py - cy) / (up ? H * 0.64 : H * 0.3);
+        d = Math.sqrt(dx * dx + dy * dy) + (n - 0.5) * (up ? 0.9 * (1 - py / H) + 0.2 : 0.3);
+      }
+      const v = U.clamp((1 - d) * (0.75 + 0.6 * n) * temp, 0, 1);
+      if (v <= 0.02) { img.data[i + 3] = 0; continue; }
+      const col = ramp(v);
+      img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2];
+      img.data[i + 3] = 255 * sstep(0.02, 0.32, v);
+    }
+    x.putImageData(img, 0, 0);
+    return c;
+  }
+
   // Lumpy smoke puff so clouds don't look like perfect circles.
   function smokeSprite(r, g, b, seed) {
     const s = 128, c = U.canvas(s, s), x = c.getContext('2d'), rnd = U.rng(seed);
@@ -448,6 +528,19 @@ window.WT = window.WT || {};
         hot: radialSprite(255, 236, 170, 0.35),
         soot: [smokeSprite(12, 11, 12, 8), smokeSprite(18, 15, 14, 9)],
       };
+      // realistic textures (generated once)
+      const sp = this.sprites;
+      sp.billowDark = [0, 1, 2, 3].map((i) => billow([14, 13, 13], [92, 88, 84], 20 + i, -1, 0.95));
+      sp.billowGray = [0, 1, 2].map((i) => billow([48, 47, 48], [150, 148, 146], 30 + i, -1, 0.8));
+      sp.billowLit = [0, 1, 2].map((i) => billow([40, 22, 14], [235, 120, 45], 40 + i, 1, 0.95));
+      sp.dust = [0, 1, 2].map((i) => billow([58, 46, 34], [150, 124, 92], 50 + i, -1, 0.85));
+      sp.flameHot = [0, 1, 2, 3].map((i) => flameSprite(60 + i, 1.35));
+      sp.flameMid = [0, 1, 2, 3].map((i) => flameSprite(70 + i, 1.0));
+      sp.flameCool = [0, 1, 2].map((i) => flameSprite(80 + i, 0.7));
+      sp.ballHot = [0, 1, 2].map((i) => flameSprite(90 + i, 1.2, true));
+      sp.ballMid = [0, 1, 2].map((i) => flameSprite(95 + i, 0.95, true));
+      // older smoke kinds now use the textured puffs
+      sp.smoke = sp.billowDark; sp.soot = sp.billowDark; sp.warm = sp.billowLit;
     }
 
     reset(seed) {
@@ -481,9 +574,12 @@ window.WT = window.WT || {};
       o = o || {};
       const cnt = this.n(o.n || 4);
       for (let i = 0; i < cnt; i++) {
-        const set = o.kind === 'steam' ? this.sprites.steam : o.kind === 'warm' ? this.sprites.warm : o.kind === 'soot' ? this.sprites.soot : this.sprites.smoke;
+        const S = this.sprites;
+        const set = o.kind === 'steam' ? S.steam : o.kind === 'warm' ? S.billowLit : o.kind === 'dust' ? S.dust : o.kind === 'gray' ? S.billowGray : S.billowDark;
+        const pick = (a) => a[(this.rnd() * a.length) | 0];
         this.add({
-          t: 'smoke', spr: set[(this.rnd() * set.length) | 0], layer: o.layer || 'back',
+          t: 'smoke', spr: pick(o.kind === 'fire' ? S.billowLit : set), spr2: o.kind === 'fire' ? pick(S.billowDark) : null, spr3: o.kind === 'fire' ? pick(S.billowGray) : null,
+          delay: o.delay ? this.r(0, o.delay) : 0, layer: o.layer || 'back',
           x: x + this.r(-1, 1) * (o.spread || 10), y: y + this.r(-1, 1) * (o.spread || 10),
           vx: (o.vx || 0) + this.r(-1, 1) * (o.jitter || 20), vy: (o.vy || -40) + this.r(-1, 1) * (o.jitter || 20),
           size: (o.size || 70) * this.r(0.7, 1.3), grow: o.grow || 1.8, life: (o.life || 2.2) * this.r(0.7, 1.2),
@@ -579,7 +675,8 @@ window.WT = window.WT || {};
           t: 'fire', layer: o.layer || 'front', x: x + this.r(-1, 1) * (o.spread || 8), y: y + this.r(-1, 1) * (o.spread || 8) * 0.5,
           vx: (o.vx || 0) + this.r(-1, 1) * (o.jitter || 25), vy: (o.vy || -90) + this.r(-1, 1) * (o.jitter || 25),
           size: (o.size || 26) * this.r(0.7, 1.3), life: (o.life || 0.8) * this.r(0.7, 1.2), g: o.g == null ? -120 : o.g, drag: o.drag || 1.2,
-          rot: this.r(0, 6.28),
+          rot: this.r(0, 6.28), v: (this.rnd() * 4) | 0, ball: !!o.ball, delay: o.delay ? this.r(0, o.delay) : 0,
+          end: o.smokeEnd ? 'smoke' : undefined, smokeSize: o.smokeSize,
         });
       }
     }
@@ -592,7 +689,7 @@ window.WT = window.WT || {};
         this.add({
           t: 'debris', layer: o.layer || 'front', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 1300, drag: 0.3,
           life: this.r(0.9, 1.8), w: this.r(4, 12) * (o.scale || 1), h: this.r(3, 7) * (o.scale || 1), rot: this.r(0, 6.28), vr: this.r(-14, 14),
-          burning: this.rnd() < (o.burning == null ? 0.5 : o.burning),
+          burning: this.rnd() < (o.burning == null ? 0.5 : o.burning), dirt: o.dirt && this.rnd() < 0.6,
         });
       }
     }
@@ -604,42 +701,55 @@ window.WT = window.WT || {};
       this.add({ t: 'missile', layer: o.layer || 'front', x, y, vx: (tx - x) / life, vy: (ty - y) / life, life, drag: 0, end: o.end || 'explode', scale: o.scale || 1, endLayer: o.endLayer || 'back' });
     }
 
-    // Airborne fireball.
+    // Airborne explosion: flash → turbulent fireball → fire tongues that turn into rolling,
+    // fire-lit smoke → dark smoke column, plus secondary pops, burning debris and sparks.
     explosion(x, y, s, o) {
       o = o || {};
       s = s || 1;
       const layer = o.layer || 'front';
-      this.flash(x, y, 420 * s, 0, { life: 0.12, color: 'white', layer });
-      this.glow(x, y, 700 * s, { life: 0.5, alpha: 0.9, layer });
-      this.ring(x, y, 220 * s, { life: 0.4, w: 5 });
-      for (let i = 0; i < this.n(26 * s); i++) {
-        const a = this.r(0, 6.283), sp = this.r(60, 340) * s;
-        this.add({ t: 'fire', layer, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, size: this.r(30, 60) * s, life: this.r(0.5, 1.1), g: -160, drag: 2.6, rot: this.r(0, 6.28) });
+      this.flash(x, y, 520 * s, 0, { life: 0.09, color: 'white', layer });
+      this.glow(x, y, 800 * s, { life: 0.4, alpha: 0.6, layer });
+      this.add({ t: 'fireball', layer, x, y, vx: 0, vy: -40, g: -60, drag: 1, size: 120 * s, life: 0.9, v: (this.rnd() * 3) | 0 });
+      for (let i = 0; i < this.n(22 * s); i++) {
+        const a = this.r(0, 6.283), sp = this.r(80, 420) * s;
+        this.add({ t: 'fire', layer, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, size: this.r(34, 70) * s, life: this.r(0.45, 1.0), g: -200, drag: 3.2, rot: 0, v: (this.rnd() * 4) | 0, ball: this.rnd() < 0.6, end: 'smoke', smokeSize: 70 * s });
       }
-      this.smoke(x, y, { n: 10 * s, size: 90 * s, spread: 50 * s, jitter: 90 * s, vy: -50, life: 3, alpha: 0.85, layer, grow: 2.2 });
-      this.debris(x, y, { n: 10 * s, speed: 800 * s, spread: Math.PI, layer: 'front', scale: Math.min(2, s) });
-      this.sparks(x, y, { n: 30 * s, speed: 900 * s, gravity: 700, life: 1.2 });
+      this.smoke(x, y - 20 * s, { n: 8 * s, kind: 'fire', size: 80 * s, spread: 40 * s, jitter: 70 * s, vy: -70, life: 4, alpha: 1, layer, grow: 2.6, drag: 0.9, delay: 0.25 });
+      for (let i = 0; i < 3; i++) {
+        const ox = x + this.r(-90, 90) * s, oy = y + this.r(-60, 60) * s, d = this.r(0.12, 0.45);
+        this.add({ t: 'fire', layer, x: ox, y: oy, vx: 0, vy: -50, size: 60 * s, life: 0.5, g: -100, drag: 1, rot: 0, v: i, ball: true, delay: d, end: 'smoke', smokeSize: 60 * s });
+      }
+      this.debris(x, y, { n: 10 * s, speed: 850 * s, spread: Math.PI, layer: o.debrisLayer || 'front', scale: Math.min(2, s) });
+      this.sparks(x, y, { n: 34 * s, speed: 950 * s, gravity: 700, life: 1.2, layer: o.debrisLayer || 'front' });
       if (o.shake !== false) this.shake(8 * s, 0.3);
     }
 
-    // Ground impact: fire column + dust skirt + debris arcs.
+    // Ground impact: flash, fire column, dirt + debris thrown up, dust skirt rolling along the ground,
+    // and a tall smoke column that keeps billowing after the fire dies.
     groundBlast(x, y, s, o) {
       o = o || {};
       s = s || 1;
       const layer = o.layer || 'back';
-      this.flash(x, y - 40 * s, 460 * s, 0, { life: 0.12, color: 'white', layer });
-      this.glow(x, y - 60 * s, 800 * s, { life: 0.6, alpha: 0.85, layer });
-      for (let i = 0; i < this.n(30 * s); i++) {
-        const a = -Math.PI / 2 + this.r(-0.55, 0.55), sp = this.r(150, 620) * s;
-        this.add({ t: 'fire', layer, x: x + this.r(-20, 20) * s, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: this.r(34, 70) * s, life: this.r(0.6, 1.2), g: 80, drag: 1.8, rot: this.r(0, 6.28) });
+      const near = o.near ? 'front' : layer; // impacts behind the train keep their debris behind it
+      this.flash(x, y - 40 * s, 560 * s, 0, { life: 0.09, color: 'white', layer });
+      this.glow(x, y - 80 * s, 900 * s, { life: 0.5, alpha: 0.5, layer });
+      this.add({ t: 'fireball', layer, x, y: y - 50 * s, vx: 0, vy: -120 * s, g: -40, drag: 1.5, size: 130 * s, life: 0.85, v: (this.rnd() * 3) | 0 });
+      for (let i = 0; i < this.n(26 * s); i++) {
+        const a = -Math.PI / 2 + this.r(-0.6, 0.6), sp = this.r(180, 720) * s;
+        this.add({ t: 'fire', layer, x: x + this.r(-25, 25) * s, y: y - 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: this.r(36, 76) * s, life: this.r(0.5, 1.15), g: 120, drag: 2.2, rot: 0, v: (this.rnd() * 4) | 0, ball: this.rnd() < 0.5, end: 'smoke', smokeSize: 80 * s });
+      }
+      // tall smoke column (fire-lit at the base, darkening as it climbs)
+      for (let i = 0; i < this.n(12 * s); i++) {
+        const h = this.r(30, 280) * s;
+        this.smoke(x + this.r(-30, 30) * s * (1 + h / (300 * s)), y - h, { n: 1, kind: 'fire', size: (70 + h * 0.35) * this.r(0.8, 1.2), spread: 10, vy: -90 - h * 0.25, jitter: 30, life: 4.8, alpha: 1, layer, grow: 2.3, drag: 0.6 });
+        this.p[this.p.length - 1].delay = 0.15 + (h / (280 * s)) * 0.5; // plume climbs upward over time
       }
       // dust skirt rolling sideways along the ground
-      for (const dir of [-1, 1]) this.smoke(x, y - 10, { n: 5 * s, kind: 'warm', vx: dir * 260 * s, vy: -25, jitter: 40, size: 70 * s, life: 1.8, alpha: 0.6, layer, grow: 2 });
-      this.smoke(x, y - 120 * s, { n: 9 * s, kind: 'soot', size: 110 * s, spread: 60 * s, vy: -90, jitter: 50, life: 3.4, alpha: 0.9, layer, grow: 2.4 });
-      const near = o.near ? 'front' : layer; // impacts behind the train keep their debris behind it
-      this.debris(x, y - 10, { n: 12 * s, speed: 900 * s, spread: 0.9, layer: near, scale: Math.min(2, s) });
-      this.sparks(x, y - 20, { n: 24 * s, speed: 800 * s, spread: 0.9, gravity: 900, life: 1.3, layer: near });
-      this.embers(x, y - 80 * s, { n: 14 * s, spread: 60 * s, lift: 1.5, layer });
+      for (const dir of [-1, 1]) this.smoke(x, y - 12, { n: 5 * s, kind: 'dust', vx: dir * 300 * s, vy: -18, jitter: 40, size: 70 * s, life: 2.4, alpha: 0.85, layer, grow: 2.4, drag: 1.4 });
+      // dirt clods + metal debris
+      this.debris(x, y - 10, { n: 14 * s, speed: 950 * s, spread: 0.9, layer: near, scale: Math.min(2, s), dirt: true });
+      this.sparks(x, y - 20, { n: 26 * s, speed: 850 * s, spread: 0.9, gravity: 900, life: 1.3, layer: near });
+      this.embers(x, y - 90 * s, { n: 16 * s, spread: 60 * s, lift: 1.5, layer });
       if (o.shake !== false) this.shake(9 * s, 0.35);
     }
 
@@ -649,6 +759,7 @@ window.WT = window.WT || {};
       this.p = []; // particles spawned during this step land here
       for (let i = 0; i < cur.length; i++) {
         const q = cur[i];
+        if (q.delay > 0) { q.delay -= dt; keep.push(q); continue; }
         q.age += dt;
         if (q.age >= q.life) {
           if ((q.t === 'blast' && q.burst) || q.end) bursts.push(q);
@@ -668,6 +779,7 @@ window.WT = window.WT || {};
           }
         } else if (q.t === 'debris' && q.burning && this.rnd() < 0.6) {
           this.add({ t: 'ember', x: q.x, y: q.y, vx: 0, vy: 0, life: 0.4, g: -20, drag: 1, size: 3, ph: 0, layer: q.layer });
+          if (this.rnd() < 0.35) this.add({ t: 'smoke', spr: this.sprites.billowDark[(this.rnd() * 4) | 0], layer: q.layer, x: q.x, y: q.y, vx: 0, vy: -20, size: 8, grow: 3, life: 1.0, alpha: 0.6, drag: 1, rot: this.rnd() * 6, vr: 0 });
         }
         if (q.t === 'blast' && this.rnd() < 0.8) {
           this.add({ t: 'ember', x: q.x, y: q.y, vx: this.r(-40, 40), vy: this.r(-40, 40), life: this.r(0.3, 0.7), g: 0, drag: 1, size: this.r(2, 4), ph: 0, layer: 'front' });
@@ -677,7 +789,8 @@ window.WT = window.WT || {};
       }
       this.p = keep.concat(this.p);
       for (const q of bursts) {
-        if (q.end === 'explode') this.explosion(q.x, q.y, q.scale, { layer: q.endLayer });
+        if (q.end === 'smoke') this.smoke(q.x, q.y - q.size * 0.4, { n: 1, kind: 'fire', size: q.smokeSize || q.size * 1.2, spread: 6, vx: q.vx * 0.3, vy: -60, jitter: 20, life: 3.2, alpha: 1, layer: q.layer, grow: 2.4, drag: 0.8 });
+        else if (q.end === 'explode') this.explosion(q.x, q.y, q.scale, { layer: q.endLayer });
         else if (q.end === 'ground') this.groundBlast(q.x, q.y, q.scale, { layer: q.endLayer });
         else this.burst(q.x, q.y, q.scale, q.gold);
       }
@@ -689,16 +802,25 @@ window.WT = window.WT || {};
     draw(ctx, layer) {
       for (let i = 0; i < this.p.length; i++) {
         const q = this.p[i];
-        if (q.layer !== layer) continue;
+        if (q.layer !== layer || q.delay > 0) continue;
         const k = q.age / q.life;
         switch (q.t) {
           case 'smoke': {
             const s = q.size * (1 + (q.grow - 1) * U.easeOutCubic(k));
-            ctx.globalAlpha = q.alpha * Math.min(1, k * 6) * (1 - k);
+            const a = q.alpha * Math.min(1, k * 6) * Math.pow(1 - k, 1.2);
             ctx.save();
             ctx.translate(q.x, q.y);
             ctx.rotate(q.rot);
-            ctx.drawImage(q.spr, -s, -s, s * 2, s * 2);
+            if (q.spr2) {
+              // fire-born smoke: glowing underside → dark soot → thinning gray
+              const h = sstep(0, 0.35, k), g2 = sstep(0.45, 1, k);
+              if (h < 1) { ctx.globalAlpha = a * (1 - h); ctx.drawImage(q.spr, -s, -s, s * 2, s * 2); }
+              ctx.globalAlpha = a * h * (1 - g2); ctx.drawImage(q.spr2, -s, -s, s * 2, s * 2);
+              if (g2 > 0) { ctx.globalAlpha = a * g2; ctx.drawImage(q.spr3, -s, -s, s * 2, s * 2); }
+            } else {
+              ctx.globalAlpha = a;
+              ctx.drawImage(q.spr, -s, -s, s * 2, s * 2);
+            }
             ctx.restore();
             break;
           }
@@ -772,16 +894,28 @@ window.WT = window.WT || {};
             break;
           }
           case 'fire': {
+            const S = this.sprites;
+            const set = k < 0.3 ? (q.ball ? S.ballHot : S.flameHot) : k < 0.65 ? (q.ball ? S.ballMid : S.flameMid) : S.flameCool;
+            const spr = set[q.v % set.length];
+            const sz = q.size * (0.7 + 0.8 * U.easeOutCubic(k));
             ctx.globalCompositeOperation = 'lighter';
-            const s = q.size * (0.6 + 0.9 * k);
-            const spr = k < 0.18 ? this.sprites.hot : k < 0.55 ? this.sprites.orange : this.sprites.red;
-            ctx.globalAlpha = (k < 0.1 ? k / 0.1 : 1 - (k - 0.1) / 0.9) * 0.9;
-            ctx.drawImage(spr, q.x - s, q.y - s * 1.2, s * 2, s * 2.4);
+            ctx.globalAlpha = (k < 0.08 ? k / 0.08 : Math.pow(1 - (k - 0.08) / 0.92, 0.8)) * 0.95;
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.rotate(U.clamp(q.vx / 600, -0.5, 0.5));
+            const w = q.ball ? sz * 2 : sz * 1.3, h = q.ball ? sz * 2 : sz * 2.2;
+            ctx.drawImage(spr, -w / 2, -h * (q.ball ? 0.5 : 0.66), w, h);
+            ctx.restore();
             ctx.globalCompositeOperation = 'source-over';
-            if (k > 0.55) { // charred tip turning into soot
-              ctx.globalAlpha = (k - 0.55) * 0.9;
-              ctx.drawImage(this.sprites.soot[0], q.x - s, q.y - s, s * 2, s * 2);
-            }
+            break;
+          }
+          case 'fireball': {
+            const S = this.sprites, spr = (k < 0.4 ? S.ballHot : S.ballMid)[q.v % 3];
+            const sz = q.size * (0.5 + 1.1 * U.easeOutCubic(Math.min(1, k * 2.5)));
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = Math.pow(1 - k, 1.5);
+            ctx.drawImage(spr, q.x - sz, q.y - sz, sz * 2, sz * 2);
+            ctx.globalCompositeOperation = 'source-over';
             break;
           }
           case 'debris': {
@@ -789,7 +923,7 @@ window.WT = window.WT || {};
             ctx.save();
             ctx.translate(q.x, q.y);
             ctx.rotate(q.rot);
-            ctx.fillStyle = q.burning ? '#2a1a10' : '#15171a';
+            ctx.fillStyle = q.dirt ? '#3a2e22' : q.burning ? '#2a1a10' : '#15171a';
             ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h);
             if (q.burning) { ctx.fillStyle = 'rgba(255,120,30,0.9)'; ctx.fillRect(-q.w / 2, -q.h / 2, q.w * 0.4, q.h); }
             ctx.restore();
@@ -861,18 +995,50 @@ window.WT = window.WT || {};
   P.WHEEL_Y = 918;
   P.WHEEL_R = 30;
 
-  const TONES = [
-    ['#5a6169', '#33393f', '#1a1d21'], // gunmetal
-    ['#3d4146', '#22262a', '#101214'], // dark steel
-    ['#2a2c2f', '#17181a', '#0a0a0b'], // matte black
-    ['#55503f', '#36332a', '#1c1b16'], // olive drab
-  ];
+  // ---- colour themes ---------------------------------------------------------------------
+  // Each theme: metal base colour (light/mid/dark), a secondary armour colour, and accent colours.
+  const THEMES = {
+    steel:     { label: 'Blue steel',   metal: ['#a9b6c4', '#556270', '#161b21'], second: ['#8c8a70', '#4a4a38', '#17170f'], accent: '#ff7a1a', hot: '#ff3b1f', gold: '#ffc840', rust: 0.6 },
+    chrome:    { label: 'Chrome',       metal: ['#e4e9ee', '#7d8892', '#1e2328'], second: ['#9aa2aa', '#4a525a', '#14181c'], accent: '#33d1ff', hot: '#ff3b5c', gold: '#ffd34d', rust: 0.25 },
+    blackgold: { label: 'Black & gold', metal: ['#6e6e74', '#2a2a2f', '#08080a'], second: ['#8a7440', '#4a3c1c', '#140f06'], accent: '#ffb52e', hot: '#ff5a1f', gold: '#ffd76b', rust: 0.35 },
+    crimson:   { label: 'Crimson ops',  metal: ['#9a9ea4', '#454a50', '#121416'], second: ['#8a2a24', '#4a1410', '#160606'], accent: '#ff2d2d', hot: '#ff6a3d', gold: '#ffc840', rust: 0.5 },
+    desert:    { label: 'Desert storm', metal: ['#d8c49a', '#8a7650', '#2c2416'], second: ['#9a8a5a', '#5a4e30', '#1e1a0e'], accent: '#ff8a2a', hot: '#ff4a1f', gold: '#ffd060', rust: 0.8 },
+    arctic:    { label: 'Arctic',       metal: ['#f2f5f8', '#a3afbb', '#3e4852'], second: ['#c8d2dc', '#7a8794', '#2a323a'], accent: '#36b8ff', hot: '#ff4a6a', gold: '#ffd34d', rust: 0.2 },
+    toxic:     { label: 'Toxic',        metal: ['#9aa494', '#454e42', '#121610'], second: ['#5c6a3a', '#33401e', '#10140a'], accent: '#7dff3a', hot: '#ffe03a', gold: '#d8ff6a', rust: 0.6 },
+  };
+  WT.THEMES = THEMES;
+  const T = (WT.theme = {});
+  const shade = (hex, f) => {
+    const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+    return `rgb(${c(r)},${c(g)},${c(b)})`;
+  };
+  let TONES = [];
+  WT.applyTheme = (name) => {
+    const th = THEMES[name] || THEMES.steel;
+    Object.assign(T, th, { name: THEMES[name] ? name : 'steel' });
+    const m = th.metal, s2 = th.second;
+    TONES = [
+      m,                                                       // main armour
+      [shade(m[0], 0.78), shade(m[1], 0.72), shade(m[2], 0.8)], // darker plates
+      [shade(m[0], 0.5), shade(m[1], 0.45), shade(m[2], 0.6)],  // near-black
+      s2,                                                      // secondary armour
+    ];
+  };
+  WT.applyTheme('steel');
 
+  // Polished-metal gradient: bright top edge, soft reflection band, dark lower half, bounce light.
   P.metal = (ctx, y0, y1, tone) => {
     const t = TONES[tone || 0], g = ctx.createLinearGradient(0, y0, 0, y1);
     g.addColorStop(0, t[0]);
-    g.addColorStop(0.18, t[1]);
-    g.addColorStop(1, t[2]);
+    g.addColorStop(0.06, t[0]);
+    g.addColorStop(0.16, t[1]);
+    g.addColorStop(0.34, t[1]);
+    g.addColorStop(0.42, t[0]);
+    g.addColorStop(0.5, t[1]);
+    g.addColorStop(0.82, t[2]);
+    g.addColorStop(0.94, t[2]);
+    g.addColorStop(1, t[1]);
     return g;
   };
 
@@ -920,7 +1086,7 @@ window.WT = window.WT || {};
     ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
     ctx.fillStyle = '#121212';
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = color || '#e8701c';
+    ctx.fillStyle = color || T.accent;
     for (let i = -h; i < w + h; i += 22) {
       ctx.beginPath();
       ctx.moveTo(x + i, y + h);
@@ -1083,7 +1249,7 @@ window.WT = window.WT || {};
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.3, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#8a9199';
     for (let k = 0; k < 6; k++) { const a = ang + k * 1.047; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r * 0.2, cy + Math.sin(a) * r * 0.2, 1.3, 0, 6.283); ctx.fill(); }
-    ctx.fillStyle = '#ff7a1a';
+    ctx.fillStyle = T.accent;
     ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 6.283); ctx.fill();
   };
 
@@ -1167,7 +1333,7 @@ window.WT = window.WT || {};
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = `rgba(255,${120 + 80 * o.heat | 0},40,${o.heat})`;
-        ctx.shadowColor = '#ff7a1a';
+        ctx.shadowColor = T.accent;
         ctx.shadowBlur = 20 * o.heat;
         ctx.fillRect(cx + 2, -thick * 0.5, thick * 0.35 - 4, thick);
         ctx.restore();
@@ -1261,7 +1427,7 @@ window.WT = window.WT || {};
   P.flag = (ctx, x, yTop, poleH, w, h, t, accent) => {
     ctx.fillStyle = '#2a2d31';
     ctx.fillRect(x - 2, yTop, 4, poleH);
-    ctx.fillStyle = '#ff7a1a';
+    ctx.fillStyle = T.accent;
     ctx.beginPath(); ctx.arc(x, yTop, 4, 0, 6.283); ctx.fill();
     // waving cloth (flows backward = left, since the train moves right)
     const seg = 14;
@@ -1545,7 +1711,7 @@ window.WT = window.WT || {};
     for (let i = 0; i < w / 20; i++) {
       const sx = r() * w, sy = 620 + r() * 230, len = 18 + r() * 70;
       const sg = x.createLinearGradient(0, sy, 0, sy + len);
-      sg.addColorStop(0, `rgba(140,66,24,${0.35 + r() * 0.25})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
+      sg.addColorStop(0, `rgba(140,66,24,${(0.35 + r() * 0.25) * T.rust})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
       x.fillStyle = sg; x.fillRect(sx, sy, 1.2 + r() * 3, len);
     }
     x.strokeStyle = 'rgba(210,214,220,0.16)';
@@ -1557,6 +1723,16 @@ window.WT = window.WT || {};
     for (let i = 0; i < w * 6; i++) {
       x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.09)';
       x.fillRect(r() * w, top + r() * (bot - top), 1.5, 1.5);
+    }
+    // metallic sheen: soft diagonal specular streaks catching the light
+    x.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < Math.ceil(w / 120); i++) {
+      const sx = r() * w, sw = 18 + r() * 40;
+      const sg = x.createLinearGradient(sx, 0, sx + sw, 0);
+      sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, `rgba(235,242,250,${0.06 + r() * 0.06})`); sg.addColorStop(1, 'rgba(255,255,255,0)');
+      x.save(); x.translate(sx, 0); x.transform(1, 0, -0.35, 1, 0, 0); x.translate(-sx, 0);
+      x.fillStyle = sg; x.fillRect(sx, top, sw, bot - top);
+      x.restore();
     }
     for (let i = 0; i < (o.holes || 0); i++) {
       const cx = 30 + r() * (w - 60), cy = 700 + r() * 150, hr = 2.5 + r() * 3;
@@ -1584,7 +1760,8 @@ window.WT = window.WT || {};
 (function (WT) {
   'use strict';
   const U = WT.U, P = WT.P;
-  const ACCENT = '#ff7a1a', GOLD = '#ffc840', RED = '#ff2a1a';
+  const TH = WT.theme; // live theme colours (WT.applyTheme)
+  const RED = '#ff2a1a';
   const GROUND = 936; // where ground impacts happen (just behind the rail)
 
   WT.killstreakFor = function (count) {
@@ -1757,7 +1934,7 @@ window.WT = window.WT || {};
       // supply crate on a parachute
       ctx.strokeStyle = '#cfc8b8'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x - 24, y - 16); ctx.lineTo(x - 10, y + 8); ctx.moveTo(x + 24, y - 16); ctx.lineTo(x + 10, y + 8); ctx.stroke();
-      ctx.fillStyle = ACCENT; ctx.beginPath(); ctx.arc(x, y - 16, 26, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = TH.accent; ctx.beginPath(); ctx.arc(x, y - 16, 26, Math.PI, 0); ctx.fill();
       P.crate(ctx, x - 14, y + 6, 28, 22, '', 'olive');
     }
   }
@@ -1767,6 +1944,7 @@ window.WT = window.WT || {};
     constructor(mgr, g, t0, ks) {
       this.mgr = mgr; this.fx = mgr.fx; this.g = g; this.t0 = t0; this.ks = ks;
       this.dur = 3; this.fired = {}; this.acc = {};
+      this.sc = ks.scale || WT.bombScale(g.giftCount, ks);
     }
     once(key, cond, fn) { if (cond && !this.fired[key]) { this.fired[key] = true; fn(); } }
     every(key, rate, dt, fn) { this.acc[key] = (this.acc[key] || 0) + rate * dt; while (this.acc[key] >= 1) { this.acc[key] -= 1; fn(); } }
@@ -1780,26 +1958,33 @@ window.WT = window.WT || {};
     constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 2.6; }
   }
 
+  // Bigger gifts inside the same tier scale the strike up: 2× the tier minimum ≈ 1.45×, capped at 2.4×.
+  WT.bombScale = (count, ks) => U.clamp(1 + 0.45 * Math.log2(Math.max(1, count) / Math.max(1, ks.min || 1)), 1, 2.4);
+
   class Airstrike extends Strike {
     constructor(m, g, t0, ks) {
       super(m, g, t0, ks);
-      this.dur = 3.4;
-      this.jets = [{ y: 290, dx: 0 }, { y: 330, dx: -170 }, { y: 360, dx: -330 }];
+      const sc = this.sc;
+      this.dur = 3.4 + (sc - 1) * 0.8;
+      const n = ks.jets || U.clamp(Math.round(2 + sc * 1.4), 3, 7);
+      this.jets = [];
+      for (let i = 0; i < n; i++) this.jets.push({ y: 280 + (i % 4) * 34 + Math.floor(i / 4) * 18, dx: -i * 150 - Math.floor(i / 4) * 90 });
+      this.missiles = sc >= 1.5 ? 3 : 2;
     }
     jetX(j, t) { return -260 + j.dx + (t - this.t0 - 0.25) * 2500; }
     update(t, dt) {
       const fx = this.fx, lt = t - this.t0;
-      this.once('snd', lt > 0.1, () => this.mgr.sound.play('jet'));
+      this.once('snd', lt > 0.1, () => this.mgr.sound.play('jet', { gain: Math.min(1.6, this.sc) }));
       this.jets.forEach((j, i) => {
         const x = this.jetX(j, t);
-        [380 + i * 140, 820 + i * 160].forEach((lx, k) => {
+        for (let k = 0; k < this.missiles; k++) {
+          const lx = 320 + k * 380 + (i % 4) * 110;
           this.once(`m${i}${k}`, x >= lx, () => {
-            fx.missile(x + 10, j.y + 24, lx + 420 + fx.r(-60, 60), GROUND, { life: 0.5, end: 'ground', scale: 0.95, endLayer: 'back' });
-            this.mgr.sound.play('clank', { gain: 0.5 });
+            fx.missile(x + 10, j.y + 24, lx + 420 + fx.r(-80, 80), GROUND, { life: 0.5, end: 'ground', scale: 0.9 * Math.min(1.6, this.sc), endLayer: 'back' });
           });
-        });
+        }
       });
-      this.once('boom', lt > 0.9, () => this.mgr.sound.play('explosion'));
+      this.once('boom', lt > 0.9, () => this.mgr.sound.play('explosion', { gain: this.sc }));
     }
     drawBack(ctx, t) {
       const fade = 1 - U.inv(this.dur - 1.2, this.dur, t - this.t0);
@@ -1812,94 +1997,127 @@ window.WT = window.WT || {};
   }
 
   class Chopper extends Strike {
-    constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 4.2; }
-    pos(t) {
-      const lt = t - this.t0;
-      if (lt < 0.9) { const k = U.easeOutCubic(lt / 0.9); return { x: U.lerp(2150, 1500, k), y: U.lerp(330, 390, k), tilt: 0.12 * (1 - k) - 0.1 }; }
-      if (lt < 3.2) { const k = (lt - 0.9) / 2.3; return { x: U.lerp(1500, 1120, k), y: 390 + Math.sin(lt * 3) * 8, tilt: -0.14 }; }
-      const k = U.easeInCubic(Math.min(1, (lt - 3.2) / 1.0));
-      return { x: U.lerp(1120, 2250, k), y: U.lerp(390, 230, k), tilt: 0.05 + 0.15 * k };
+    constructor(m, g, t0, ks) {
+      super(m, g, t0, ks);
+      this.dur = 4.2 + (this.sc - 1) * 0.6;
+      // a second gunship joins for big gifts
+      this.birds = this.sc >= 1.45 ? [{ dy: 0, dt: 0, dx: 0 }, { dy: -110, dt: 0.45, dx: 260 }] : [{ dy: 0, dt: 0, dx: 0 }];
+      this.rockets = Math.round(2 + (this.sc - 1) * 3);
+    }
+    pos(t, b) {
+      const lt = t - this.t0 - (b ? b.dt : 0), dx = b ? b.dx : 0, dy = b ? b.dy : 0, end = this.dur - 1.0;
+      if (lt < 0.9) { const k = U.easeOutCubic(Math.max(0, lt) / 0.9); return { x: U.lerp(2150, 1500, k) + dx, y: U.lerp(330, 390, k) + dy, tilt: 0.12 * (1 - k) - 0.1 }; }
+      if (lt < end) { const k = (lt - 0.9) / (end - 0.9); return { x: U.lerp(1500, 1120, k) + dx, y: 390 + dy + Math.sin(lt * 3) * 8, tilt: -0.14 }; }
+      const k = U.easeInCubic(Math.min(1, (lt - end) / 1.0));
+      return { x: U.lerp(1120, 2250, k) + dx, y: U.lerp(390, 230, k) + dy, tilt: 0.05 + 0.15 * k };
     }
     muzzle(p) { return { x: p.x + Math.cos(p.tilt) * 92 - Math.sin(p.tilt) * 30, y: p.y + Math.sin(p.tilt) * 92 + Math.cos(p.tilt) * 30 }; }
     update(t, dt) {
-      const fx = this.fx, lt = t - this.t0, p = this.pos(t);
+      const fx = this.fx, lt = t - this.t0;
       this.once('snd', lt > 0, () => this.mgr.sound.play('chopper', { duration: this.dur }));
-      if (lt > 1.0 && lt < 3.1) {
-        this.once('gun', true, () => this.mgr.sound.play('minigun', { duration: 2.1 }));
-        const tx = U.lerp(1350, 520, (lt - 1.0) / 2.1);
-        this.every('mg', 26, dt, () => {
-          const m = this.muzzle(p), ax = tx + fx.r(-40, 40) - m.x, ay = GROUND - m.y;
-          fx.tracer(m.x, m.y, Math.atan2(ay, ax), { speed: 2800, len: 120, life: Math.hypot(ax, ay) / 2800, color: '255,200,110' });
-          fx.flash(m.x, m.y, 40, Math.atan2(ay, ax), { life: 0.04 });
-        });
-        this.every('hit', 9, dt, () => {
-          const x = tx + fx.r(-50, 50);
-          fx.sparks(x, GROUND - 6, { n: 8, angle: -1.9, spread: 0.7, speed: 420 });
-          fx.smoke(x, GROUND - 10, { n: 1, kind: 'warm', size: 40, alpha: 0.5, vy: -40, life: 1.2 });
-          fx.flash(x, GROUND - 10, 70, 0, { life: 0.06, layer: 'back' });
-        });
-      }
-      [1.7, 2.4].forEach((rt, i) => this.once('r' + i, lt >= rt, () => {
-        fx.missile(p.x + 10, p.y + 24, U.lerp(1250, 700, i) + fx.r(-60, 60), GROUND, { life: 0.45, end: 'ground', scale: 1.1, endLayer: 'back' });
-        this.mgr.sound.play('explosion', { gain: 0.8 });
-      }));
+      const gunEnd = this.dur - 1.1;
+      this.birds.forEach((b, bi) => {
+        const p = this.pos(t, b), blt = lt - b.dt;
+        if (blt > 1.0 && blt < gunEnd) {
+          if (bi === 0) this.once('gun', true, () => this.mgr.sound.play('minigun', { duration: gunEnd - 1 }));
+          const tx = U.lerp(1350, 520, (blt - 1.0) / (gunEnd - 1.0)) - bi * 200;
+          this.every('mg' + bi, 26, dt, () => {
+            const m = this.muzzle(p), ax = tx + fx.r(-40, 40) - m.x, ay = GROUND - m.y;
+            fx.tracer(m.x, m.y, Math.atan2(ay, ax), { speed: 2800, len: 120, life: Math.hypot(ax, ay) / 2800, color: '255,200,110' });
+            fx.flash(m.x, m.y, 40, Math.atan2(ay, ax), { life: 0.04 });
+          });
+          this.every('hit' + bi, 9, dt, () => {
+            const x = tx + fx.r(-50, 50);
+            fx.sparks(x, GROUND - 6, { n: 8, angle: -1.9, spread: 0.7, speed: 420, layer: 'back' });
+            fx.smoke(x, GROUND - 10, { n: 1, kind: 'dust', size: 40, alpha: 0.7, vy: -40, life: 1.4 });
+            fx.flash(x, GROUND - 10, 70, 0, { life: 0.06, layer: 'back' });
+          });
+        }
+        for (let i = 0; i < this.rockets; i++) {
+          const rt = 1.5 + i * ((gunEnd - 1.7) / Math.max(1, this.rockets - 1));
+          this.once(`r${bi}_${i}`, blt >= rt, () => {
+            fx.missile(p.x + 10, p.y + 24, U.lerp(1300, 560, i / Math.max(1, this.rockets - 1)) - bi * 150 + fx.r(-60, 60), GROUND, { life: 0.45, end: 'ground', scale: 1.05 * Math.min(1.5, this.sc), endLayer: 'back' });
+          });
+        }
+      });
+      [1.8, 2.6].forEach((st, i) => this.once('rs' + i, lt >= st, () => this.mgr.sound.play('explosion', { gain: 0.8 })));
     }
     drawBack(ctx, t) {
-      const p = this.pos(t), lt = t - this.t0;
-      // searchlight sweeping the ground
-      const sa = U.envelope(lt, 0.5, 3.4, 0.3, 0.3);
-      if (sa > 0) {
-        const m = this.muzzle(p), gx = U.lerp(1300, 600, U.clamp((lt - 0.6) / 2.6, 0, 1));
-        ctx.globalCompositeOperation = 'lighter';
-        const g = ctx.createLinearGradient(m.x, m.y, gx, GROUND);
-        g.addColorStop(0, `rgba(255,230,190,${0.32 * sa})`); g.addColorStop(1, 'rgba(255,200,140,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.moveTo(m.x - 6, m.y); ctx.lineTo(gx - 120, GROUND); ctx.lineTo(gx + 120, GROUND); ctx.lineTo(m.x + 6, m.y); ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
+      const lt = t - this.t0;
+      for (const b of this.birds) {
+        if (lt < b.dt) continue;
+        const p = this.pos(t, b), blt = lt - b.dt;
+        const sa = U.envelope(blt, 0.5, this.dur - 0.8, 0.3, 0.3);
+        if (sa > 0) {
+          const m = this.muzzle(p), gx = U.lerp(1300, 600, U.clamp((blt - 0.6) / (this.dur - 1.6), 0, 1)) - b.dx * 0.5;
+          ctx.globalCompositeOperation = 'lighter';
+          const g = ctx.createLinearGradient(m.x, m.y, gx, GROUND);
+          g.addColorStop(0, `rgba(255,230,190,${0.3 * sa})`); g.addColorStop(1, 'rgba(255,200,140,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.moveTo(m.x - 6, m.y); ctx.lineTo(gx - 120, GROUND); ctx.lineTo(gx + 120, GROUND); ctx.lineTo(m.x + 6, m.y); ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        drawHeli(ctx, p.x, p.y, b.dy ? 1.05 : 1.25, t, p.tilt);
       }
-      drawHeli(ctx, p.x, p.y, 1.25, t, p.tilt);
     }
   }
 
   class CarpetBomb extends Strike {
-    constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 4.4; this.y = 300; this.speed = 820; this.nextDrop = 140; }
-    bx(t) { return -420 + (t - this.t0) * this.speed; }
+    constructor(m, g, t0, ks) {
+      super(m, g, t0, ks);
+      this.dur = 4.4 + (this.sc - 1) * 0.6;
+      this.speed = 820;
+      this.planes = [{ y: 300, delay: 0, next: 140 }];
+      if (this.sc >= 1.4) this.planes.push({ y: 390, delay: 0.55, next: 200 });
+      if (this.sc >= 2) this.planes.push({ y: 230, delay: 1.0, next: 170 });
+      this.spacing = 105 / Math.min(1.5, this.sc);
+    }
+    bx(t, pl) { return -420 + (t - this.t0 - pl.delay) * this.speed; }
     update(t, dt) {
-      const fx = this.fx, x = this.bx(t);
-      this.once('snd', t - this.t0 > 0.1, () => this.mgr.sound.play('jet', { gain: 0.7 }));
-      while (x >= this.nextDrop && this.nextDrop < 1820) {
-        const fall = Math.sqrt((2 * (GROUND - this.y - 20)) / 900);
-        fx.add({ t: 'bomb', layer: 'back', x: this.nextDrop, y: this.y + 20, vx: this.speed * 0.85, vy: 0, g: 900, drag: 0, life: fall, end: 'ground', scale: 1.15, endLayer: 'back' });
-        this.nextDrop += 105;
-        if (this.nextDrop % 315 < 105) this.mgr.sound.play('explosion', { gain: 0.6, delay: fall });
-      }
+      const fx = this.fx;
+      this.once('snd', t - this.t0 > 0.1, () => this.mgr.sound.play('jet', { gain: 0.7 * this.planes.length }));
+      this.planes.forEach((pl) => {
+        const x = this.bx(t, pl);
+        let n = 0;
+        while (x >= pl.next && pl.next < 1820) {
+          const fall = Math.sqrt((2 * (GROUND - pl.y - 20)) / 900);
+          fx.add({ t: 'bomb', layer: 'back', x: pl.next, y: pl.y + 20, vx: this.speed * 0.85, vy: 0, g: 900, drag: 0, life: fall, end: 'ground', scale: 1.1 * Math.min(1.7, this.sc), endLayer: 'back' });
+          pl.next += this.spacing;
+          if (n++ % 3 === 0) this.mgr.sound.play('explosion', { gain: 0.6, delay: fall });
+        }
+      });
     }
     drawBack(ctx, t) {
-      const x = this.bx(t), fade = 1 - U.inv(this.dur - 1, this.dur, t - this.t0);
-      for (const ex of [-60, 10]) drawContrail(ctx, Math.min(x, 2500) + (ex - 50) * 1.3, this.y + 20, 1400, fade * 0.8);
-      if (x > -500 && x < 2400) drawBomber(ctx, x, this.y, 1.3, t, x > 80 && x < 1840);
+      const fade = 1 - U.inv(this.dur - 1, this.dur, t - this.t0);
+      for (const pl of this.planes) {
+        const x = this.bx(t, pl);
+        if (x < -600) continue;
+        for (const ex of [-60, 10]) drawContrail(ctx, Math.min(x, 2500) + (ex - 50) * 1.3, pl.y + 20, 1400, fade * 0.8);
+        if (x > -500 && x < 2400) drawBomber(ctx, x, pl.y, pl.delay ? 1.1 : 1.3, t, x > 80 && x < 1840);
+      }
     }
   }
 
   class Nuke extends Strike {
     constructor(m, g, t0, ks) {
       super(m, g, t0, ks);
-      this.dur = 6.6; this.X = 1380; this.det = 2.4;
+      this.dur = 6.6 + (this.sc - 1) * 1.2; this.X = 1380; this.det = 2.4;
+      this.top = 380 - (this.sc - 1) * 140; // bigger nukes climb higher
     }
     update(t, dt) {
       const fx = this.fx, lt = t - this.t0, d = lt - this.det;
       this.once('siren', lt >= 0, () => this.mgr.sound.play('siren', { duration: 2.4 }));
       this.once('missile', lt >= 1.85, () => fx.add({ t: 'missile', layer: 'back', x: this.X + 160, y: -60, vx: -160 / 0.55, vy: (GROUND + 60) / 0.55, life: 0.55, drag: 0, scale: 1.6 }));
       this.once('det', d >= 0, () => {
-        fx.groundBlast(this.X, GROUND, 2.4, { layer: 'back' });
-        fx.explosion(this.X, GROUND - 120, 2, { layer: 'back' });
-        fx.shake(30, 1.4);
+        fx.groundBlast(this.X, GROUND, 2.4 * this.sc, { layer: 'back' });
+        fx.explosion(this.X, GROUND - 120, 2 * this.sc, { layer: 'back' });
+        fx.shake(30 * Math.min(1.5, this.sc), 1.4 * this.sc);
         this.mgr.sound.play('explosion', { gain: 2 });
         this.mgr.sound.play('rumble', { duration: 4, gain: 1.6 });
       });
-      if (d > 0 && d < 3.8) {
-        const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, 380, rise);
-        const rx = U.lerp(90, 250, rise), ry = rx * 0.42;
+      if (d > 0 && d < 3.8 * this.sc) {
+        const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, this.top, rise);
+        const rx = U.lerp(90, 250, rise) * this.sc, ry = rx * 0.42;
         // stem
         this.every('stem', 50 * fx.mult, dt, () => {
           const y = fx.r(capY, GROUND);
@@ -1907,16 +2125,16 @@ window.WT = window.WT || {};
           if (fx.rnd() < 0.5) fx.smoke(this.X + fx.r(-40, 40), y, { n: 1, kind: 'warm', size: 60, vy: -80, jitter: 20, life: 2.2, alpha: 0.5, layer: 'back' });
         });
         // rolling cap
-        this.every('cap', 70 * fx.mult, dt, () => {
+        this.every('cap', 70 * fx.mult * this.sc, dt, () => {
           const a = fx.r(0, 6.283), px = this.X + Math.cos(a) * rx, py = capY + Math.sin(a) * ry;
           const roll = Math.sin(a) < 0 ? 1 : -1; // top rolls outward, bottom rolls inward
-          fx.smoke(px, py, { n: 1, kind: fx.rnd() < 0.6 ? 'soot' : 'warm', size: fx.r(90, 170), vx: Math.cos(a) * 60 * roll, vy: -30, jitter: 15, life: 2.8, alpha: 1, layer: 'back', grow: 1.5 });
+          fx.smoke(px, py, { n: 1, kind: fx.rnd() < 0.6 ? 'soot' : 'fire', size: fx.r(90, 170) * this.sc, vx: Math.cos(a) * 60 * roll, vy: -30, jitter: 15, life: 2.8, alpha: 1, layer: 'back', grow: 1.5 });
           if (fx.rnd() < 0.35) fx.fire(this.X + Math.cos(a) * rx * 0.5, capY + Math.abs(Math.sin(a)) * ry * 0.5, { n: 1, size: 60, vy: -10, life: 0.8, layer: 'back', g: 0 });
         });
         // dust wall rolling out along the ground
         if (d < 1.6) this.every('dust', 40 * fx.mult, dt, () => {
-          const dir = fx.rnd() < 0.5 ? -1 : 1, r = d * 1100;
-          fx.smoke(this.X + dir * r, GROUND - fx.r(0, 40), { n: 1, kind: 'warm', size: 110, vx: dir * 300, vy: -20, life: 1.6, alpha: 0.6, layer: 'back' });
+          const dir = fx.rnd() < 0.5 ? -1 : 1, r = d * 1100 * this.sc;
+          fx.smoke(this.X + dir * r, GROUND - fx.r(0, 40), { n: 1, kind: 'dust', size: 110, vx: dir * 300, vy: -20, life: 1.6, alpha: 0.6, layer: 'back' });
         });
         this.every('ash', 25, dt, () => fx.embers(fx.r(0, 1920), fx.r(200, 700), { n: 1, lift: -0.4, spread: 10 }));
       }
@@ -1924,10 +2142,10 @@ window.WT = window.WT || {};
     drawBack(ctx, t) {
       const d = t - this.t0 - this.det;
       if (d <= 0) return;
-      const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, 380, rise);
-      const fade = 1 - U.inv(2.6, 4.0, d);
+      const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, this.top, rise);
+      const fade = 1 - U.inv(2.6 * this.sc, 4.0 * this.sc, d);
       // procedural mushroom body under the particle texture: dark rolling cap with a burning underside
-      const rx = U.lerp(90, 250, rise) * 1.25, ry = rx * 0.5, sa = 0.9 * fade;
+      const rx = U.lerp(90, 250, rise) * 1.25 * this.sc, ry = rx * 0.5, sa = 0.9 * fade;
       const sg = ctx.createLinearGradient(this.X - 70, 0, this.X + 70, 0);
       sg.addColorStop(0, 'rgba(50,30,20,0)'); sg.addColorStop(0.3, `rgba(90,45,22,${0.75 * sa})`);
       sg.addColorStop(0.5, `rgba(255,150,60,${0.85 * sa})`); sg.addColorStop(0.7, `rgba(90,45,22,${0.75 * sa})`); sg.addColorStop(1, 'rgba(50,30,20,0)');
@@ -1945,12 +2163,12 @@ window.WT = window.WT || {};
       ctx.fillStyle = `rgba(70,40,26,${0.55 * sa})`;
       ctx.beginPath(); ctx.ellipse(this.X, U.lerp(capY, GROUND, 0.45), rx * 0.5, ry * 0.3, 0, 0, 6.283); ctx.fill();
       // glowing core of the cap + stem
-      P.glowSprite(ctx, WT.sprites.orange, this.X, capY, 700 * (0.6 + rise * 0.6), 0.6 * fade);
+      P.glowSprite(ctx, WT.sprites.orange, this.X, capY, 700 * (0.6 + rise * 0.6) * this.sc, 0.6 * fade);
       P.glowSprite(ctx, WT.sprites.hot, this.X, capY, 260, 0.6 * fade);
       P.glowSprite(ctx, WT.sprites.orange, this.X, GROUND - 60, 900, 0.6 * fade);
       // shockwave ellipse racing along the ground
       if (d < 1.6) {
-        const k = d / 1.6, rx = 2400 * U.easeOutCubic(k);
+        const k = d / 1.6, rx = 2400 * this.sc * U.easeOutCubic(k);
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = `rgba(255,220,170,${0.8 * (1 - k)})`;
         ctx.lineWidth = 16 * (1 - k) + 2;
@@ -1993,8 +2211,11 @@ window.WT = window.WT || {};
 
   class StrikeManager {
     constructor(fx, sound) { this.fx = fx; this.sound = sound; this.list = []; }
-    start(g, t0) {
-      const ks = WT.killstreakFor(g.giftCount), K = KINDS[ks.kind] || Supply;
+    // opts: { kind, label, scale, noCard } — used for squads and hype-level attacks
+    start(g, t0, opts) {
+      let ks = WT.killstreakFor(g.giftCount);
+      if (opts) ks = Object.assign({}, opts.kind ? (WT.cfg.killstreaks.find((k) => k.kind === opts.kind) || ks) : ks, opts);
+      const K = KINDS[ks.kind] || Supply;
       const s = new K(this, g, t0, ks);
       this.list.push(s);
       return s;
@@ -2005,11 +2226,13 @@ window.WT = window.WT || {};
     }
     drawBack(ctx, t) { for (const s of this.list) if (t >= s.t0) s.drawBack(ctx, t); }
     drawHud(ctx, t) {
+      let top = null; // only the newest killstreak card is shown, so cards never overlap
       for (const s of this.list) {
         if (t < s.t0) continue;
         s.drawHud(ctx, t);
-        this.drawCard(ctx, s, t);
+        if (!s.ks.noCard && t - s.t0 - (s.ks.kind === 'nuke' ? s.det + 0.4 : 0) >= 0) top = s;
       }
+      if (top) this.drawCard(ctx, top, t);
     }
     // CoD-style killstreak card at the top of the screen.
     drawCard(ctx, s, t) {
@@ -2020,7 +2243,7 @@ window.WT = window.WT || {};
       const w = 820, h = 128, x = 960 - w / 2;
       const y = 120 - (1 - U.easeOutBack(U.inv(0, 0.3, cardT))) * 160;
       const glitch = cardT < 0.25 ? (Math.sin(t * 190) * 14) : 0;
-      const col = nuke ? '#ffd23a' : s.ks.kind === 'supply' ? ACCENT : GOLD;
+      const col = nuke ? '#ffd23a' : s.ks.kind === 'supply' ? TH.accent : TH.gold;
       ctx.save();
       ctx.globalAlpha = a;
       ctx.translate(glitch, 0);
@@ -2037,12 +2260,14 @@ window.WT = window.WT || {};
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       ctx.font = `600 18px ${P.FONT_UI}`; ctx.fillStyle = '#ffb070';
       const n = s.g.giftCount;
-      ctx.fillText(s.ks.kind === 'supply' ? `NEW SUB GIFTER  •  ×${n}` : `SUB BOMB  •  ×${n} GIFTED SUBS`, x + h + 8, y + 34);
+      const sub = s.g.names ? `SUB SQUAD  •  ${s.g.names.length} GIFTER${s.g.names.length > 1 ? 'S' : ''}  •  ×${n} SUBS` : s.ks.kind === 'supply' ? `NEW SUB GIFTER  •  ×${n}` : `SUB BOMB  •  ×${n} GIFTED SUBS${s.sc >= 1.4 ? '  •  POWER ×' + s.sc.toFixed(1) : ''}`;
+      ctx.fillText(sub, x + h + 8, y + 34);
       U.fitFont(ctx, s.ks.label, w - h - 30, 54, P.FONT_STENCIL);
       ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fillStyle = col; ctx.fillText(s.ks.label, x + h + 8, y + 86); ctx.restore();
       ctx.fillStyle = '#f4efe6';
-      U.fitFont(ctx, `CALLED IN BY ${U.cleanName(s.g.username).toUpperCase()}`, w - h - 30, 20, P.FONT_UI, '700');
-      ctx.fillText(`CALLED IN BY ${U.cleanName(s.g.username).toUpperCase()}`, x + h + 8, y + 113);
+      const who = `CALLED IN BY ${(s.g.names ? s.g.names.map(U.cleanName).join(', ') : U.cleanName(s.g.username)).toUpperCase()}`;
+      U.fitFont(ctx, who, w - h - 30, 20, P.FONT_UI, '700', 11);
+      ctx.fillText(who, x + h + 8, y + 113);
       // scanline sweep
       const sw = U.inv(0, 0.6, cardT);
       if (sw < 1) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,170,90,0.25)'; ctx.fillRect(x + w * sw - 40, y, 40, h); }
@@ -2065,7 +2290,39 @@ window.WT = window.WT || {};
   const U = WT.U, P = WT.P;
 
   const SPR_TOP = 470, SPR_H = 440, PAD = 60, RES = 2; // sprites are painted at 2× for crisp detail
-  const ACCENT = '#ff7a1a', HOT = '#ff3b1f', GOLD = '#ffc840';
+  const TH = WT.theme; // live theme colours (WT.applyTheme)
+
+  function loadImg(url, done) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => done(img);
+    img.onerror = () => { if (img.crossOrigin) { const i2 = new Image(); i2.onload = () => done(i2); i2.src = url; } };
+    img.src = url;
+  }
+
+  // Shield-shaped avatar frame (falls back to a helmet silhouette with initials).
+  function drawShield(ctx, cx, cy, r, name, img, hue, t) {
+    const shield = () => {
+      ctx.beginPath();
+      ctx.moveTo(cx - r, cy - r * 0.95); ctx.lineTo(cx + r, cy - r * 0.95); ctx.lineTo(cx + r, cy + r * 0.2);
+      ctx.quadraticCurveTo(cx + r, cy + r * 0.85, cx, cy + r * 1.25);
+      ctx.quadraticCurveTo(cx - r, cy + r * 0.85, cx - r, cy + r * 0.2);
+      ctx.closePath();
+    };
+    ctx.save();
+    shield(); ctx.fillStyle = `hsl(${hue},35%,18%)`; ctx.fill(); ctx.clip();
+    if (img) ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2.3);
+    else {
+      ctx.fillStyle = `hsl(${hue},30%,30%)`;
+      ctx.beginPath(); ctx.arc(cx, cy - r * 0.1, r * 0.42, Math.PI, 0); ctx.lineTo(cx + r * 0.52, cy); ctx.lineTo(cx - r * 0.52, cy); ctx.fill();
+      ctx.fillStyle = '#1a1c1f'; ctx.beginPath(); ctx.ellipse(cx, cy + r * 0.85, r * 0.75, r * 0.5, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#e9e4da'; ctx.font = `${r * 0.55}px ${P.FONT_STENCIL}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(name.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || '?', cx, cy + r * 0.45);
+    }
+    ctx.restore();
+    shield(); ctx.lineWidth = Math.max(2.5, r / 11); ctx.strokeStyle = TH.gold;
+    ctx.save(); ctx.shadowColor = TH.accent; ctx.shadowBlur = 12 + 5 * Math.sin(t * 6); ctx.stroke(); ctx.restore();
+  }
 
   // ---------------------------------------------------------------- Gun --
   class Gun {
@@ -2218,7 +2475,7 @@ window.WT = window.WT || {};
       // glowing slit windows
       for (let i = 0; i < 3; i++) {
         x.fillStyle = '#070707'; x.fillRect(56 + i * 60, 636, 46, 22);
-        x.save(); x.shadowColor = ACCENT; x.shadowBlur = 16;
+        x.save(); x.shadowColor = TH.accent; x.shadowBlur = 16;
         x.fillStyle = '#ff8a2a'; x.fillRect(59 + i * 60, 644, 40, 7);
         x.restore();
       }
@@ -2242,7 +2499,7 @@ window.WT = window.WT || {};
       P.plate(x, 486, 712, 110, 146, { spacing: 24 });
       x.beginPath(); x.moveTo(602, 712); x.lineTo(626, 712); x.lineTo(658, 772); x.lineTo(658, 858); x.lineTo(602, 858); x.closePath();
       x.fillStyle = P.metal(x, 712, 858, 1); x.fill(); x.strokeStyle = '#000'; x.stroke();
-      P.insignia(x, 428, 786, 50, ACCENT);
+      P.insignia(x, 428, 786, 50, TH.accent);
       // chains draped over the armor
       P.chain(x, 272, 708, 372, 708, 22);
       P.chain(x, 484, 708, 596, 708, 26);
@@ -2262,7 +2519,7 @@ window.WT = window.WT || {};
       x.fillStyle = P.metal(x, 872, 936, 1); x.fill(); x.strokeStyle = '#000'; x.stroke();
       for (let i = 0; i < 4; i++) { x.strokeStyle = 'rgba(255,122,26,0.5)'; x.beginPath(); x.moveTo(648 + i * 14, 878); x.lineTo(664 + i * 14, 932); x.stroke(); }
       // neon underglow strip
-      P.neon(x, 30, 862, w - 22, 862, 3, ACCENT);
+      P.neon(x, 30, 862, w - 22, 862, 3, TH.accent);
     }
     // Driving wheels with coupling rods, main rod, crosshead and steam cylinder.
     drawUnder(ctx, sx, st) {
@@ -2322,7 +2579,7 @@ window.WT = window.WT || {};
     }
     drawLive(ctx, sx, dy, st) {
       const t = st.t;
-      P.flag(ctx, sx + 46, 500 + dy, 98, 84, 50, t, HOT);
+      P.flag(ctx, sx + 46, 500 + dy, 98, 84, 50, t, TH.hot);
       super.drawLive(ctx, sx, dy, st);
       // rotating amber beacon on the cab roof
       const b = 0.5 + 0.5 * Math.sin(t * 10);
@@ -2398,20 +2655,20 @@ window.WT = window.WT || {};
       // SUB GIFTER neon label box
       x.fillStyle = '#0a0a0b';
       U.chamfer(x, 24, 806, 136, 48, 8); x.fill();
-      x.strokeStyle = ACCENT; x.lineWidth = 2; x.save(); x.shadowColor = ACCENT; x.shadowBlur = 14; x.stroke(); x.restore();
-      P.glowText(x, WT.cfg.labels.gifter, 92, 824, 19, ACCENT, { core: '#ffd2a8', blur: 16 });
-      P.glowText(x, '★ ★ ★', 92, 843, 12, GOLD, { blur: 6 });
+      x.strokeStyle = TH.accent; x.lineWidth = 2; x.save(); x.shadowColor = TH.accent; x.shadowBlur = 14; x.stroke(); x.restore();
+      P.glowText(x, WT.cfg.labels.gifter, 92, 824, 19, TH.accent, { core: '#ffd2a8', blur: 16 });
+      P.glowText(x, '★ ★ ★', 92, 843, 12, TH.gold, { blur: 6 });
       // gift-count badge housing
       x.fillStyle = '#0a0a0b';
       U.chamfer(x, 480, 802, 104, 56, 8); x.fill();
-      x.strokeStyle = GOLD; x.lineWidth = 2; x.stroke();
+      x.strokeStyle = TH.gold; x.lineWidth = 2; x.stroke();
       // ammo crates and shells on deck
       P.crate(x, 470, 740, 62, 46, 'AMMO');
       P.crate(x, 536, 752, 50, 34, '', 'olive');
       P.shells(x, 540, 750, 4);
       // turret ring
       x.fillStyle = '#16191c'; U.roundRect(x, 246, 776, 170, 16, 6); x.fill();
-      P.neon(x, 20, 866, w - 20, 866, 2, ACCENT);
+      P.neon(x, 20, 866, w - 20, 866, 2, TH.accent);
     }
     detail(x) {
       P.ladder(x, 6, 796, 906, 12);
@@ -2456,8 +2713,8 @@ window.WT = window.WT || {};
       ctx.restore();
       shield();
       ctx.lineWidth = 4;
-      ctx.strokeStyle = GOLD;
-      ctx.save(); ctx.shadowColor = ACCENT; ctx.shadowBlur = 14 + 6 * Math.sin(t * 6); ctx.stroke(); ctx.restore();
+      ctx.strokeStyle = TH.gold;
+      ctx.save(); ctx.shadowColor = TH.accent; ctx.shadowBlur = 14 + 6 * Math.sin(t * 6); ctx.stroke(); ctx.restore();
     }
     drawLive(ctx, sx, dy, st) {
       const t = st.t, Tc = this.Tc;
@@ -2472,7 +2729,7 @@ window.WT = window.WT || {};
         const cd = U.easeOutBack(U.inv(Tc - 1.25, Tc - 0.9, t));
         ctx.globalAlpha = U.clamp(cd * 2, 0, 1);
         P.glowSprite(ctx, WT.sprites.gold, 0, -84 - (1 - cd) * 60, 90, 0.5 * cd);
-        P.crown(ctx, 0, -84 - (1 - cd) * 60 + Math.sin(t * 4) * 2, 34, GOLD);
+        P.crown(ctx, 0, -84 - (1 - cd) * 60 + Math.sin(t * 4) * 2, 34, TH.gold);
         ctx.globalAlpha = 1;
         ctx.restore();
       }
@@ -2484,7 +2741,7 @@ window.WT = window.WT || {};
       if (f > 0 && f < 1.8) {
         const a = f < 0.2 ? f / 0.2 : 1 - U.inv(1.2, 1.8, f);
         ctx.globalAlpha = a;
-        P.glowText(ctx, `+${this.g.giftCount} SUB${this.g.giftCount > 1 ? 'S' : ''}`, sx + 250, 560 + dy - f * 70, 50, GOLD, { glowColor: ACCENT, core: '#fff3d0' });
+        P.glowText(ctx, `+${this.g.giftCount} SUB${this.g.giftCount > 1 ? 'S' : ''}`, sx + 250, 560 + dy - f * 70, 50, TH.gold, { glowColor: TH.accent, core: '#fff3d0' });
         ctx.globalAlpha = 1;
       }
     }
@@ -2504,13 +2761,13 @@ window.WT = window.WT || {};
       g.addColorStop(0, '#2a2e33'); g.addColorStop(1, '#0d0f11');
       ctx.fillStyle = g;
       U.chamfer(ctx, 0, 0, w, h, 10); ctx.fill();
-      ctx.lineWidth = 2.5; ctx.strokeStyle = ACCENT;
-      ctx.save(); ctx.shadowColor = ACCENT; ctx.shadowBlur = 12; ctx.stroke(); ctx.restore();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = TH.accent;
+      ctx.save(); ctx.shadowColor = TH.accent; ctx.shadowBlur = 12; ctx.stroke(); ctx.restore();
       // rank icon
       const rk = this.rank();
-      if (rk.icon === 'crown') P.crown(ctx, 30, h / 2, 30, GOLD);
-      else if (rk.icon === 'star') P.star(ctx, 30, h / 2, 16, GOLD);
-      else P.chevrons(ctx, 30, h / 2 + 4, 26, rk.n, GOLD);
+      if (rk.icon === 'crown') P.crown(ctx, 30, h / 2, 30, TH.gold);
+      else if (rk.icon === 'star') P.star(ctx, 30, h / 2, 16, TH.gold);
+      else P.chevrons(ctx, 30, h / 2 + 4, 26, rk.n, TH.gold);
       // username — always fits, never overlaps
       ctx.fillStyle = '#f4efe6';
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
@@ -2527,10 +2784,120 @@ window.WT = window.WT || {};
       const f = U.inv(this.shotTimes[0], this.shotTimes[0] + 0.9, t);
       const n = Math.round(this.g.giftCount * U.easeOutCubic(f));
       const x = sx + 532, y = 822 + dy;
-      P.glowText(ctx, `×${n}`, x, y, n >= 100 ? 26 : 34, GOLD, { blur: f > 0 && f < 1 ? 24 : 10, core: '#fff1c8' });
+      P.glowText(ctx, `×${n}`, x, y, n >= 100 ? 26 : 34, TH.gold, { blur: f > 0 && f < 1 ? 24 : 10, core: '#fff1c8' });
       ctx.font = `600 12px ${P.FONT_UI}`; ctx.textAlign = 'center'; ctx.fillStyle = '#c9b48a';
       ctx.fillText('GIFTED SUBS', x, 849 + dy);
     }
+  }
+
+  // ------------------------------------------------------- SquadWagon --
+  // Troop carrier for small gifts (1–4 subs): up to 5 gifters share one wagon, each with a seat,
+  // an avatar shield, a crown and their own nameplate. Members: [{ username, avatarUrl, giftCount }].
+  class SquadWagon extends Car {
+    constructor(members) {
+      super('squad', 700, 0);
+      this.members = members.slice(0, 5).map((m) => Object.assign({}, m, { username: U.cleanName(m.username), hue: U.hash(m.username) % 360 }));
+      this.members.forEach((m) => { if (m.avatarUrl) loadImg(m.avatarUrl, (img) => { m.img = img; }); });
+      this.bogies = [90, 610];
+      this.seatX = [78, 202, 326, 450, 574];
+      this.mg = new Gun({ px: 668, py: 712, len: 70, thick: 9, dome: 15, rest: -0.35, maxRecoil: 6 });
+      this.guns = [this.mg];
+      this.holes = 8;
+      this.antennas = [[686, 736, 60]];
+      this.Tc = 0;
+      this.salutes = [];
+    }
+    schedule(Tc) {
+      this.Tc = Tc;
+      this.salutes = this.members.map((m, i) => Tc + 0.1 + i * 0.24);
+      this.mg.aimTo(Tc - 0.6, Tc - 0.2, -0.6);
+      this.mg.aimTo(Tc + 1.6, Tc + 2.0, -0.35);
+    }
+    paint(x) {
+      const w = this.w;
+      // bench + seat backs behind the armoured wall
+      x.fillStyle = '#121416'; x.fillRect(14, 752, w - 70, 18);
+      for (const sx of this.seatX) {
+        x.fillStyle = P.metal(x, 700, 770, 1); U.roundRect(x, sx - 34, 708, 68, 62, 6); x.fill();
+        x.strokeStyle = '#000'; x.lineWidth = 1.5; x.stroke();
+      }
+      // armoured troop wall
+      P.plate(x, 8, 770, w - 16, 102, { c: 10, spacing: 26 });
+      P.hazard(x, 14, 764, w - 28, 8);
+      x.fillStyle = '#0a0a0b';
+      U.chamfer(x, 640, 780, 52, 80, 8); x.fill();
+      x.strokeStyle = TH.accent; x.lineWidth = 2; x.save(); x.shadowColor = TH.accent; x.shadowBlur = 12; x.stroke(); x.restore();
+      x.save(); x.translate(666, 820); x.rotate(-Math.PI / 2);
+      P.glowText(x, 'SUB SQUAD', 0, 0, 18, TH.accent, { core: '#ffe2c4', blur: 12 });
+      x.restore();
+      // front turret pedestal
+      x.fillStyle = P.metal(x, 700, 770, 1); x.fillRect(640, 712, 52, 58);
+      x.strokeStyle = '#000'; x.strokeRect(640, 712, 52, 58);
+      P.neon(x, 20, 866, w - 20, 866, 2, TH.accent);
+    }
+    detail(x) {
+      P.ladder(x, 4, 774, 906, 12);
+      P.handrail(x, 16, 632, 744, 8);
+      P.boltGrid(x, 18, 782, 0, 80, 16);
+      P.boltGrid(x, 628, 782, 0, 80, 16);
+      P.jerrycan(x, 646, 682);
+      P.lampCage(x, 690, 724, 4, '#ffb347');
+    }
+    drawLive(ctx, sx, dy, st) {
+      const t = st.t, Tc = this.Tc;
+      this.seatX.forEach((cx, i) => {
+        const m = this.members[i];
+        const x0 = sx + cx - 58, y0 = 784 + dy, pw = 116, ph = 72;
+        if (!m) {
+          // open seat
+          ctx.fillStyle = 'rgba(8,9,10,0.85)'; U.chamfer(ctx, x0, y0, pw, ph, 7); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.font = `600 13px ${P.FONT_UI}`; ctx.fillStyle = 'rgba(200,195,185,0.45)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('OPEN SEAT', x0 + pw / 2, y0 + ph / 2);
+          return;
+        }
+        const pop = U.easeOutBack(U.inv(Tc - 1.6 + i * 0.15, Tc - 1.25 + i * 0.15, t));
+        if (pop > 0.01) {
+          ctx.save();
+          ctx.translate(sx + cx, 730 + dy);
+          ctx.scale(pop, pop);
+          drawShield(ctx, 0, -6, 30, m.username, m.img, m.hue, t);
+          const cd = U.easeOutBack(U.inv(Tc - 1.1 + i * 0.12, Tc - 0.8 + i * 0.12, t));
+          ctx.globalAlpha = U.clamp(cd * 2, 0, 1);
+          P.crown(ctx, 0, -52 - (1 - cd) * 40 + Math.sin(t * 4 + i) * 1.5, 24, TH.gold);
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+        // nameplate
+        ctx.fillStyle = '#08090a'; U.chamfer(ctx, x0, y0, pw, ph, 7); ctx.fill();
+        const k = U.inv(Tc - 1.5 + i * 0.15, Tc - 1.2 + i * 0.15, t);
+        if (k > 0) {
+          const sc = U.easeOutBack(k);
+          ctx.save();
+          ctx.translate(x0 + pw / 2, y0 + ph / 2); ctx.scale(sc, sc); ctx.translate(-pw / 2, -ph / 2);
+          const g = ctx.createLinearGradient(0, 0, 0, ph); g.addColorStop(0, '#2a2e33'); g.addColorStop(1, '#0d0f11');
+          ctx.fillStyle = g; U.chamfer(ctx, 0, 0, pw, ph, 7); ctx.fill();
+          ctx.strokeStyle = TH.accent; ctx.lineWidth = 2; ctx.stroke();
+          ctx.fillStyle = '#f4efe6'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          U.fitFont(ctx, m.username, pw - 12, 20, P.FONT_UI, '700', 10);
+          ctx.fillText(m.username, pw / 2, 28);
+          const f = U.inv(this.salutes[i], this.salutes[i] + 0.6, t);
+          P.glowText(ctx, `\u00d7${Math.round(m.giftCount * U.easeOutCubic(f))}`, pw / 2, 46, 20, TH.gold, { blur: f > 0 && f < 1 ? 16 : 6 });
+          ctx.font = `600 10px ${P.FONT_UI}`; ctx.fillStyle = '#c9b48a';
+          ctx.fillText(m.giftCount > 1 ? 'GIFTED SUBS' : 'GIFTED SUB', pw / 2, 64);
+          ctx.restore();
+        }
+        // floating "+n" after the salute
+        const fl = t - this.salutes[i];
+        if (fl > 0 && fl < 1.4) {
+          ctx.globalAlpha = fl < 0.15 ? fl / 0.15 : 1 - U.inv(0.9, 1.4, fl);
+          P.glowText(ctx, `+${m.giftCount}`, sx + cx, 640 + dy - fl * 60, 34, TH.gold, { glowColor: TH.accent, core: '#fff3d0' });
+          ctx.globalAlpha = 1;
+        }
+      });
+      super.drawLive(ctx, sx, dy, st);
+    }
+    seatTop(i, sx, dy) { return { x: sx + this.seatX[i], y: 680 + dy }; }
   }
 
   // ------------------------------------------------------- ThemedWagon --
@@ -2568,14 +2935,14 @@ window.WT = window.WT || {};
         for (let i = -200; i < w + 200; i += 70) { x.beginPath(); x.moveTo(i, 872); x.lineTo(i + 180, 690); x.stroke(); }
         x.restore();
         P.stencil(x, L.blackops, w / 2 - 30, 742, 52, '#d8d2c6', 'center', 380);
-        P.neon(x, 60, 774, w - 120, 774, 3, ACCENT);
+        P.neon(x, 60, 774, w - 120, 774, 3, TH.accent);
         P.skull(x, w - 62, 740, 54, '#d8d2c6');
         // rocket pod on the roof
         x.fillStyle = P.metal(x, 650, 690, 2); U.chamfer(x, 90, 652, 170, 38, 6); x.fill();
         x.strokeStyle = '#000'; x.stroke();
         for (let r = 0; r < 2; r++) for (let c = 0; c < 6; c++) {
           x.fillStyle = '#050505'; x.beginPath(); x.arc(108 + c * 27, 663 + r * 16, 6, 0, 6.283); x.fill();
-          x.fillStyle = HOT; x.beginPath(); x.arc(108 + c * 27, 663 + r * 16, 2.3, 0, 6.283); x.fill();
+          x.fillStyle = TH.hot; x.beginPath(); x.arc(108 + c * 27, 663 + r * 16, 2.3, 0, 6.283); x.fill();
         }
       } else {
         // warzone: open gondola with sandbags and containers
@@ -2585,11 +2952,11 @@ window.WT = window.WT || {};
         P.shells(x, 200, 758, 5);
         P.sandbags(x, 262, 762, 120);
         x.fillStyle = '#0a0a0b'; U.chamfer(x, 40, 666, 250, 40, 6); x.fill();
-        x.strokeStyle = ACCENT; x.lineWidth = 2; x.stroke();
-        P.glowText(x, L.warzone, 165, 687, 30, ACCENT, { core: '#ffd8b0', blur: 14 });
+        x.strokeStyle = TH.accent; x.lineWidth = 2; x.stroke();
+        P.glowText(x, L.warzone, 165, 687, 30, TH.accent, { core: '#ffd8b0', blur: 14 });
         x.fillStyle = '#16191c'; x.fillRect(88, 706, 6, 8); x.fillRect(236, 706, 6, 8);
       }
-      P.neon(x, 20, 866, w - 20, 866, 2, th === 'blackops' ? HOT : ACCENT);
+      P.neon(x, 20, 866, w - 20, 866, 2, th === 'blackops' ? TH.hot : TH.accent);
     }
     detail(x) {
       const w = this.w;
@@ -2624,14 +2991,14 @@ window.WT = window.WT || {};
       const t = st.t;
       if (this.kind === 'hype') this.drawHype(ctx, sx, dy, t);
       super.drawLive(ctx, sx, dy, st);
-      if (this.kind === 'warzone') P.flag(ctx, sx + 520, 640 + dy, 120, 70, 42, t + 1, ACCENT);
+      if (this.kind === 'warzone') P.flag(ctx, sx + 520, 640 + dy, 120, 70, 42, t + 1, TH.accent);
       if (this.kind !== 'hype') this.drawRecruits(ctx, sx, dy);
     }
     drawHype(ctx, sx, dy, t) {
       const L = WT.cfg.labels, hype = this.data.hype || {};
       const flick = 0.85 + 0.15 * Math.sin(t * 31) * Math.sin(t * 7);
       ctx.globalAlpha = flick;
-      P.glowText(ctx, L.hype, sx + this.w / 2, 744 + dy, 56, ACCENT, { core: '#ffd9b8', blur: 26 });
+      P.glowText(ctx, L.hype, sx + this.w / 2, 744 + dy, 56, TH.accent, { core: '#ffd9b8', blur: 26 });
       ctx.globalAlpha = 1;
       // level + progress bar
       const lvl = hype.level || 1, prog = hype.goal ? U.clamp(hype.progress / hype.goal, 0, 1) : 0;
@@ -2640,11 +3007,11 @@ window.WT = window.WT || {};
       ctx.strokeStyle = '#3d2b1c'; ctx.lineWidth = 2; ctx.stroke();
       const fill = (bw - 120) * prog * U.easeOutCubic(U.clamp((t - (this.data.t0 || 0)) / 1.2, 0, 1));
       const g = ctx.createLinearGradient(bx + 110, 0, bx + 110 + fill, 0);
-      g.addColorStop(0, HOT); g.addColorStop(1, '#ffb347');
+      g.addColorStop(0, TH.hot); g.addColorStop(1, '#ffb347');
       ctx.fillStyle = g;
       ctx.fillRect(bx + 110, by + 9, fill, 18);
       P.glowSprite(ctx, WT.sprites.orange, bx + 110 + fill, by + 18, 60, 0.8);
-      ctx.font = `700 20px ${P.FONT_UI}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = GOLD;
+      ctx.font = `700 20px ${P.FONT_UI}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = TH.gold;
       ctx.fillText(hype.complete ? 'COMPLETE' : `LEVEL ${lvl}`, bx + 12, by + 19);
     }
     drawRecruits(ctx, sx, dy) {
@@ -2655,11 +3022,11 @@ window.WT = window.WT || {};
         const x = sx + 30 + i * (slotW + 14) + (this.kind === 'warzone' ? 0 : 0);
         ctx.fillStyle = 'rgba(8,9,10,0.92)';
         U.chamfer(ctx, x, y + dy, slotW, 54, 7); ctx.fill();
-        ctx.strokeStyle = r.type === 'resub' ? GOLD : ACCENT; ctx.lineWidth = 2; ctx.stroke();
+        ctx.strokeStyle = r.type === 'resub' ? TH.gold : TH.accent; ctx.lineWidth = 2; ctx.stroke();
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = '#f4efe6';
         U.fitFont(ctx, U.cleanName(r.username), slotW - 24, 24, P.FONT_UI, '700', 13);
         ctx.fillText(U.cleanName(r.username), x + 12, y + dy + 27);
-        ctx.font = `500 13px ${P.FONT_UI}`; ctx.fillStyle = r.type === 'resub' ? GOLD : '#ffb070';
+        ctx.font = `500 13px ${P.FONT_UI}`; ctx.fillStyle = r.type === 'resub' ? TH.gold : '#ffb070';
         ctx.fillText(r.type === 'resub' ? `VETERAN • ${r.months || 1} MONTHS` : 'NEW RECRUIT', x + 12, y + dy + 45);
       });
     }
@@ -2703,18 +3070,18 @@ window.WT = window.WT || {};
       // energy cores
       for (const cx of [292, 528]) {
         x.fillStyle = '#0a0a0b'; U.roundRect(x, cx - 18, 796, 36, 64, 8); x.fill();
-        x.save(); x.shadowColor = ACCENT; x.shadowBlur = 20;
-        const g = x.createLinearGradient(0, 802, 0, 854); g.addColorStop(0, '#ffd08a'); g.addColorStop(1, HOT);
+        x.save(); x.shadowColor = TH.accent; x.shadowBlur = 20;
+        const g = x.createLinearGradient(0, 802, 0, 854); g.addColorStop(0, '#ffd08a'); g.addColorStop(1, TH.hot);
         x.fillStyle = g; U.roundRect(x, cx - 11, 802, 22, 52, 6); x.fill();
         x.restore();
       }
       x.fillStyle = '#0a0a0b'; U.chamfer(x, 340, 798, 140, 60, 8); x.fill();
-      x.strokeStyle = GOLD; x.lineWidth = 2; x.stroke();
-      P.crown(x, 410, 818, 30, GOLD);
-      P.stencil(x, 'ULTIMATE', 410, 845, 15, GOLD);
+      x.strokeStyle = TH.gold; x.lineWidth = 2; x.stroke();
+      P.crown(x, 410, 818, 30, TH.gold);
+      P.stencil(x, 'ULTIMATE', 410, 845, 15, TH.gold);
       P.stencil(x, 'HEAVY ARTILLERY', 150, 826, 22, '#cfc8b8', 'center', 230);
       P.stencil(x, 'GIFTER DIVISION', 676, 826, 22, '#cfc8b8', 'center', 230);
-      P.neon(x, 20, 866, w - 20, 866, 3, GOLD);
+      P.neon(x, 20, 866, w - 20, 866, 3, TH.gold);
     }
     drawLive(ctx, sx, dy, st) {
       super.drawLive(ctx, sx, dy, st);
@@ -2755,18 +3122,18 @@ window.WT = window.WT || {};
       P.plate(x, 150, 648, 130, 56, { c: 6, tone: 1, spacing: 20 });
       for (let i = 0; i < 3; i++) {
         x.fillStyle = '#060606'; x.fillRect(166 + i * 36, 664, 26, 18);
-        x.save(); x.shadowColor = ACCENT; x.shadowBlur = 10; x.fillStyle = '#ff9a3a'; x.fillRect(169 + i * 36, 670, 20, 6); x.restore();
+        x.save(); x.shadowColor = TH.accent; x.shadowBlur = 10; x.fillStyle = '#ff9a3a'; x.fillRect(169 + i * 36, 670, 20, 6); x.restore();
       }
       P.stencil(x, 'REAR GUARD', w / 2 + 10, 760, 30, '#d9d3c4', 'center', 300);
       P.hazard(x, 40, 790, w - 80, 14);
       P.chain(x, 40, 820, w - 40, 820, 18);
       P.skull(x, w / 2 + 10, 838, 30, '#8f8a80');
       x.fillStyle = '#08090a'; x.fillRect(10, 740, 10, 110);
-      P.neon(x, 20, 866, w - 20, 866, 2, HOT);
+      P.neon(x, 20, 866, w - 20, 866, 2, TH.hot);
     }
     drawLive(ctx, sx, dy, st) {
       super.drawLive(ctx, sx, dy, st);
-      P.flag(ctx, sx + 392, 600 + dy, 104, 70, 42, st.t + 2, HOT);
+      P.flag(ctx, sx + 392, 600 + dy, 104, 70, 42, st.t + 2, TH.hot);
       // red tail lights at the rear (left) end
       const fade = st.tailFade == null ? 1 : st.tailFade;
       const blink = 0.75 + 0.25 * Math.sin(st.t * 6);
@@ -2782,6 +3149,7 @@ window.WT = window.WT || {};
   WT.Car = Car;
   WT.Locomotive = Locomotive;
   WT.GifterCannonWagon = GifterCannonWagon;
+  WT.SquadWagon = SquadWagon;
   WT.ThemedWagon = ThemedWagon;
   WT.ArtilleryWagon = ArtilleryWagon;
   WT.Caboose = Caboose;
@@ -2799,7 +3167,7 @@ window.WT = window.WT || {};
   'use strict';
   const U = WT.U, P = WT.P;
   const C = 960, GAP = 26;
-  const ACCENT = '#ff7a1a', GOLD = '#ffc840';
+  const TH = WT.theme; // live theme colours (WT.applyTheme)
 
   class Run {
     constructor(ctrl, payload) {
@@ -2810,20 +3178,28 @@ window.WT = window.WT || {};
       this.p = payload;
       // scene 3 timing: one slot per gifter, stretched for big SUB BOMB killstreaks
       this.strikes = new WT.StrikeManager(this.fx, this.sound);
+      const wagons = payload.wagons || payload.gifters.map((g) => ({ type: 'bomb', g }));
       const slots = [];
       let Tc = 5.5;
-      payload.gifters.forEach((g, i) => {
-        const ex = WT.killstreakFor(g.giftCount).extra || 0;
+      wagons.forEach((w) => {
+        let ex = 0.3;
+        if (w.type === 'bomb') {
+          const ks = WT.killstreakFor(w.g.giftCount);
+          ex = (ks.extra || 0) * (1 + (WT.bombScale(w.g.giftCount, ks) - 1) * 0.6);
+        }
         slots.push({ Tc, ex });
         Tc += cfg.extraGifterSeconds + ex;
       });
+      // hype train level drives how hard the whole train fights
+      this.level = Math.max(1, (payload.hype && payload.hype.level) || 1);
+      this.warMul = 0.6 + 0.25 * Math.min(this.level, 6);
       const last = slots[slots.length - 1];
       const G = (this.G = last ? last.Tc - 5.5 + last.ex : 0);
       this.D = cfg.showDuration + G;
 
       // --- composition (front → rear) -------------------------------------
       this.loco = new WT.Locomotive();
-      this.gifterCars = payload.gifters.map((g) => new WT.GifterCannonWagon(g));
+      this.gifterCars = wagons.map((w) => (w.type === 'squad' ? new WT.SquadWagon(w.members) : new WT.GifterCannonWagon(w.g)));
       this.hype = new WT.ThemedWagon('hype', { hype: payload.hype, t0: 7 + G - 0.8 });
       this.blackops = new WT.ThemedWagon('blackops', { recruits: payload.recruits.slice(0, 2) });
       this.warzone = new WT.ThemedWagon('warzone', { recruits: payload.recruits.slice(2, 4) });
@@ -2906,6 +3282,24 @@ window.WT = window.WT || {};
       }
       // Scene 3 — gifter cannon wagons
       this.gifterCars.forEach((car) => {
+        if (car.kind === 'squad') {
+          const names = car.members.map((m) => m.username), total = car.members.reduce((a, m) => a + m.giftCount, 0);
+          this.at(car.Tc - 1.6, () => this.sound.play('clank'));
+          this.at(car.Tc + 0.05, () => this.strikes.start({ username: names[0], names, giftCount: total }, car.Tc + 0.05, { kind: 'supply', label: 'SQUAD DEPLOYED', extra: 0 }));
+          car.members.forEach((m, i) => {
+            const st = car.salutes[i];
+            this.at(st, () => {
+              const sx = this.sxOf(car, st), dy = car.bob(sx, st), p = car.seatTop(i, sx, dy);
+              fx.blast(p.x, p.y + 30, -Math.PI / 2, { target: [p.x + fx.r(-30, 30), p.y - 230 - fx.r(0, 60)], life: 0.45, gold: true, scale: 0.75 + m.giftCount * 0.1, size: 18 });
+              fx.flash(p.x, p.y + 40, 120, -Math.PI / 2, { life: 0.08, color: 'white' });
+              this.fire(car, car.mg, st, { tracer: true });
+              this.sound.play('cannon', { gain: 0.5 });
+              this.ctrl.onGifterFired(m);
+            });
+          });
+          for (let tt = car.Tc; tt < car.Tc + 1.3; tt += 0.08) this.at(tt, ((T) => () => this.fire(car, car.mg, T, { tracer: true }))(tt));
+          return;
+        }
         const g = car.g;
         this.at(car.Tc - 1.65, () => this.sound.play('clank'));
         this.at(car.Tc - 0.55, () => this.sound.play('reload'));
@@ -2936,8 +3330,11 @@ window.WT = window.WT || {};
       ag[0].aimTo(9.9 + G, 10.5 + G, -0.72);
       ag[1].aimTo(9.9 + G, 10.5 + G, -0.98);
       ag[2].aimTo(9.9 + G, 10.5 + G, -0.62);
-      const targets = [[[560, 250], [960, 150], [1360, 250]], [[700, 330], [1080, 200], [1500, 300]], [[460, 320], [860, 210], [1240, 160]]];
-      [Ta - 0.9, Ta - 0.1, Ta + 0.7].forEach((tv, v) => {
+      const nV = 2 + Math.min(4, this.level);
+      const vTimes = [];
+      for (let v = 0; v < nV; v++) vTimes.push(Ta - 1.0 + (2.0 * v) / (nV - 1));
+      const targets = vTimes.map((_, v) => [0, 1, 2].map((i) => [360 + i * 400 + ((v * 137) % 260), 150 + ((v * 71 + i * 53) % 190)]));
+      vTimes.forEach((tv, v) => {
         if (v === 0) this.at(tv, () => this.sound.play('sting', { gain: 1.2 }));
         ag.forEach((gn, i) => {
           const T = tv + i * 0.05;
@@ -2945,6 +3342,12 @@ window.WT = window.WT || {};
         });
       });
       ag.forEach((gn, i) => gn.aimTo(Ta + 1.3, Ta + 2.0, gn.rest));
+      // Hype-train level attacks: the higher the level, the more the sky joins in
+      const L = this.level, lv = { username: `HYPE LV ${L}`, giftCount: 0 };
+      if (L >= 2) this.strikes.start(lv, 7.0 + G, { kind: 'airstrike', noCard: true, scale: 0.8 + 0.1 * L, jets: Math.min(6, L) });
+      if (L >= 3) this.strikes.start(lv, 9.0 + G, { kind: 'chopper', noCard: true, scale: L >= 5 ? 1.5 : 1 });
+      if (L >= 4) this.strikes.start(lv, 12.2 + G, { kind: 'carpet', noCard: true, scale: L >= 6 ? 1.5 : 1 });
+      if (L >= 5) this.strikes.start(lv, 10.4 + G, { kind: 'airstrike', noCard: true, scale: 1.4 });
       // Scene 6 — departure
       this.at(13.1 + G, () => this.sound.play('whistle', { gain: 0.6 }));
       this.at(13.3 + G, () => {
@@ -2970,7 +3373,7 @@ window.WT = window.WT || {};
       this.strikes.update(t, dt);
       const fx = this.fx, D = this.D, off = this.off(t), v = this.vel(t);
       // ambient battlefield: distant impacts, flak and burning damage on the wagons
-      const war = WT.cfg.warIntensity * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
+      const war = WT.cfg.warIntensity * this.warMul * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
       if (war > 0) {
         this.every('farboom', 0.75 * war, dt, () => fx.groundBlast(fx.r(80, 1840), 930, fx.r(0.3, 0.5), { layer: 'back', shake: false }));
         const flakOn = Math.sin(t * 1.7) > 0.2;
@@ -3031,7 +3434,7 @@ window.WT = window.WT || {};
       // scene 3 charge-up: energy converging on each gifter cannon muzzle
       for (const car of this.gifterCars) {
         const c = car.cannon;
-        if (t > c.chargeFrom && t < c.chargeTo) {
+        if (c && t > c.chargeFrom && t < c.chargeTo) {
           const sx = this.sxOf(car, t), m = c.muzzle(sx, car.bob(sx, t), t);
           this.every('chg' + car.g.username, 70, dt, () => {
             const a = fx.r(0, 6.283), r = fx.r(70, 150);
@@ -3167,10 +3570,10 @@ window.WT = window.WT || {};
       if (ia > 0) {
         ctx.globalAlpha = ia * (Math.sin(t * 18) > -0.6 ? 1 : 0.4);
         const txt = L.incoming.slice(0, Math.floor(U.inv(0.3, 1.2, t) * L.incoming.length));
-        ctx.fillStyle = ACCENT;
+        ctx.fillStyle = TH.accent;
         ctx.beginPath(); ctx.moveTo(130, 452); ctx.lineTo(150, 488); ctx.lineTo(110, 488); ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#111'; ctx.font = `bold 24px ${P.FONT_UI}`; ctx.textAlign = 'center'; ctx.fillText('!', 130, 484);
-        P.glowText(ctx, txt, 170, 472, 34, '#ffd2a8', { align: 'left', glowColor: ACCENT, blur: 14 });
+        P.glowText(ctx, txt, 170, 472, 34, '#ffd2a8', { align: 'left', glowColor: TH.accent, blur: 14 });
         ctx.fillStyle = 'rgba(255,122,26,0.6)';
         ctx.fillRect(110, 500, 520 * U.inv(0.3, 1.4, t), 2);
         ctx.globalAlpha = 1;
@@ -3184,7 +3587,7 @@ window.WT = window.WT || {};
           const s = U.easeOutBack(U.inv(6.6 + G, 7.0 + G, t));
           ctx.save(); ctx.globalAlpha = ba; ctx.translate(hx, 600); ctx.scale(s, s);
           const txt = hy.event === 'complete' ? `HYPE TRAIN COMPLETE — LEVEL ${hy.level}` : `HYPE TRAIN LEVEL ${hy.level}!`;
-          P.glowText(ctx, txt, 0, 0, 50, GOLD, { glowColor: ACCENT, core: '#fff1cc', blur: 26 });
+          P.glowText(ctx, txt, 0, 0, 50, TH.gold, { glowColor: TH.accent, core: '#fff1cc', blur: 26 });
           ctx.restore();
         }
       }
@@ -3209,12 +3612,12 @@ window.WT = window.WT || {};
       ctx.scale(s, s);
       ctx.font = `86px ${P.FONT_STENCIL}`;
       const size = U.fitFont(ctx, L.thanks, 1500, 86, P.FONT_STENCIL);
-      P.glowText(ctx, L.thanks, 0, 0, size, ACCENT, { core: '#ffe6cc', blur: 30 });
+      P.glowText(ctx, L.thanks, 0, 0, size, TH.accent, { core: '#ffe6cc', blur: 30 });
       ctx.restore();
       if (k < 1) P.glowSprite(ctx, WT.sprites.white, C, 300, 1200 * (1 - k), (1 - k) * 0.6);
       // rule lines
       const lw = 700 * U.easeOutCubic(U.inv(t0 + 0.2, t0 + 0.7, t));
-      ctx.fillStyle = ACCENT;
+      ctx.fillStyle = TH.accent;
       ctx.fillRect(C - lw, 352, lw * 2, 2);
       // roster chips (most recent gifters) — measured so they never overlap
       const list = this.p.recent.slice(0, 5);
@@ -3234,13 +3637,13 @@ window.WT = window.WT || {};
           ctx.globalAlpha = alpha * a;
           ctx.fillStyle = 'rgba(10,10,11,0.9)';
           U.chamfer(ctx, cx, y, w, fs + 26, 8); ctx.fill();
-          ctx.strokeStyle = i === 0 ? GOLD : ACCENT; ctx.lineWidth = 2; ctx.stroke();
-          P.crown(ctx, cx + 30, y + (fs + 26) / 2, fs * 0.9, GOLD);
+          ctx.strokeStyle = i === 0 ? TH.gold : TH.accent; ctx.lineWidth = 2; ctx.stroke();
+          P.crown(ctx, cx + 30, y + (fs + 26) / 2, fs * 0.9, TH.gold);
           ctx.font = `700 ${fs}px ${P.FONT_UI}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
           ctx.fillStyle = '#f4efe6';
           const nm = U.cleanName(g.username);
           ctx.fillText(nm, cx + 56, y + (fs + 26) / 2 + 1);
-          ctx.fillStyle = GOLD;
+          ctx.fillStyle = TH.gold;
           ctx.fillText(`×${g.giftCount}`, cx + 56 + ctx.measureText(nm + '  ').width, y + (fs + 26) / 2 + 1);
         }
         cx += widths[i] + 18;
@@ -3249,7 +3652,7 @@ window.WT = window.WT || {};
       ctx.globalAlpha = alpha * U.inv(t0 + 0.6, t0 + 0.9, t);
       const cr = this.p.counter;
       const cnt = Math.round(U.lerp(cr[0], cr[1], U.easeOutCubic(U.inv(t0 + 0.6, t0 + 1.8, t))));
-      P.glowText(ctx, `${L.total}: ${cnt}`, C, 474, 34, GOLD, { font: P.FONT_STENCIL, glowColor: ACCENT, blur: 16 });
+      P.glowText(ctx, `${L.total}: ${cnt}`, C, 474, 34, TH.gold, { font: P.FONT_STENCIL, glowColor: TH.accent, blur: 16 });
       ctx.restore();
     }
   }
@@ -3379,18 +3782,38 @@ window.WT = window.WT || {};
 
     startRun(demo) {
       const cfg = this.cfg;
-      let gifters, recruits, hype, recent, counter;
+      let gifters, recruits, hype, recent, counter, wagons;
       if (demo) {
         // preview / prerender pass: rotate through the demo gifters, never touch real stats
-        const d = cfg.demo.gifters, i = this.demoIdx++ % d.length;
-        gifters = [Object.assign({}, d[i])];
+        const d = cfg.demo.gifters, i = this.demoIdx++;
+        const bombs = d.filter((x) => x.giftCount >= cfg.bombMin), small = d.filter((x) => x.giftCount < cfg.bombMin);
+        const bomb = Object.assign({}, bombs[i % Math.max(1, bombs.length)] || d[i]);
+        const squadMembers = (cfg.demo.squad || small).map((x) => Object.assign({}, x));
+        gifters = squadMembers.concat([bomb]);
+        wagons = [{ type: 'squad', members: squadMembers }, { type: 'bomb', g: bomb }];
         recruits = cfg.demo.recruits.slice();
         hype = Object.assign({}, cfg.demo.hype);
-        recent = d.slice(i).concat(d.slice(0, i));
+        recent = gifters.slice().reverse().concat(d).filter((g, k, arr) => arr.findIndex((x) => x.username === g.username) === k).slice(0, 5);
         const base = 120 + i * 7;
-        counter = [base, base + gifters[0].giftCount];
+        counter = [base, base + gifters.reduce((a, g) => a + g.giftCount, 0)];
       } else {
-        gifters = this.pendingGifters.splice(0, cfg.maxGiftersPerRun);
+        // every SUB BOMB (≥ bombMin gifts) gets its own cannon wagon; smaller gifts share squad wagons of 5
+        gifters = [];
+        wagons = [];
+        let squad = null;
+        while (this.pendingGifters.length) {
+          const g = this.pendingGifters[0];
+          const bomb = g.giftCount >= cfg.bombMin;
+          const needs = bomb || !squad || squad.members.length >= 5;
+          if (needs && wagons.length >= cfg.maxWagonsPerRun) break;
+          this.pendingGifters.shift();
+          gifters.push(g);
+          if (bomb) wagons.push({ type: 'bomb', g });
+          else {
+            if (!squad || squad.members.length >= 5) { squad = { type: 'squad', members: [] }; wagons.push(squad); }
+            squad.members.push(g);
+          }
+        }
         recruits = this.pendingRecruits.splice(0, 4);
         hype = Object.assign({}, this.hype, this.pendingHype || {});
         this.pendingHype = null;
@@ -3400,7 +3823,7 @@ window.WT = window.WT || {};
         const thisRun = gifters.reduce((a, g) => a + g.giftCount, 0);
         counter = [this.totalGifts, this.totalGifts + thisRun];
       }
-      this.run = new WT.Run(this, { gifters, recruits, hype, recent, counter, demo: !!demo });
+      this.run = new WT.Run(this, { gifters, wagons, recruits, hype, recent, counter, demo: !!demo });
       this.runT = 0;
       this.wakeAt = Infinity;
       this.emit('run', this.run);
@@ -3545,6 +3968,7 @@ window.WT = window.WT || {};
     const exportMode = params.get('export') === '1';
 
     await waitFonts(3000);
+    WT.applyTheme(cfg.theme);
 
     const fx = new WT.FX(cfg.quality);
     WT.sprites = fx.sprites;
@@ -3586,6 +4010,7 @@ window.WT = window.WT || {};
       mock: WT.mock,
       setSound: (on) => sound.setEnabled(on),
       replayDemo: () => { if (!ctrl.run) ctrl.startRun(true); },
+      setTheme: (name) => { cfg.theme = name; WT.applyTheme(name); }, // applies from the next train pass
       // Export helpers (used by tools/render-webm.mjs): step exactly one 60fps frame and return a PNG.
       exportFrame: () => { ctrl.tick(STEP); render(); return canvas.toDataURL('image/png'); },
       step: (n) => { for (let i = 0; i < n; i++) ctrl.tick(STEP); render(); },

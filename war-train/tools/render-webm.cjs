@@ -2,7 +2,8 @@
 // plus an MP4 preview composited on a dark background (MP4 has no alpha).
 // Usage: NODE_PATH=$(npm root -g) node tools/render-webm.cjs [outDir] [fps] [gifts]
 //   gifts: optional comma list of gift counts for one showcase pass, e.g. 5,10,25,50
-//          (one gifter wagon each, so every SUB BOMB killstreak plays); default = demo pass
+//          (gifts < 5 share a squad wagon, each SUB BOMB gets its own); default = demo pass
+//   level: optional hype train level for the showcase (more attacks), default 3
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -13,6 +14,7 @@ const { chromium } = require('playwright');
   const out = path.resolve(process.argv[2] || path.join(__dirname, '../dist'));
   const fps = +(process.argv[3] || 60);
   const gifts = (process.argv[4] || '').split(',').map(Number).filter((n) => n > 0);
+  const level = +(process.argv[5] || 3);
   const tag = gifts.length ? 'showcase' : '15s';
   const frames = fs.mkdtempSync(path.join(os.tmpdir(), 'wartrain-'));
   fs.mkdirSync(out, { recursive: true });
@@ -23,12 +25,12 @@ const { chromium } = require('playwright');
   await page.goto('file://' + path.resolve(__dirname, '../index.html') + `?export=1&mode=${mode}&persist=0`);
   await page.waitForFunction(() => window.WarTrain && window.WarTrain.exportFrame);
   if (gifts.length) {
-    await page.evaluate((list) => {
-      const W = window.WarTrain, names = ['GhostRecon_77', 'Nightfall_NL', 'SgtKilljoy', 'Warlord_Wim', 'PvtRyan', 'Kilo141'];
+    await page.evaluate(([list, level]) => {
+      const W = window.WarTrain, names = ['PvtRyan', 'Kilo141', 'LtLemon', 'SnipeQueen', 'GhostRecon_77', 'Nightfall_NL', 'SgtKilljoy', 'Warlord_Wim'];
       list.forEach((n, i) => W.handle(W.mock.gift(n, names[i % names.length])));
-      W.handle(W.mock.resub('MajorTom_NL', 14)); W.handle(W.mock.sub('PvtPixel')); W.handle(W.mock.hypeLevel(3));
+      W.handle(W.mock.resub('MajorTom_NL', 14)); W.handle(W.mock.sub('PvtPixel')); W.handle(W.mock.hypeLevel(level));
       while (!W.controller.run) W.step(1);
-    }, gifts);
+    }, [gifts, level]);
   }
   // 60 fps simulation always; at 30 fps we just keep every second frame.
   const first = await page.evaluate(() => window.WarTrain.exportFrame());

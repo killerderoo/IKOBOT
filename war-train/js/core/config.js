@@ -19,7 +19,9 @@ window.WT = window.WT || {};
 
     showDuration: 15,       // one train pass with one gifter wagon
     extraGifterSeconds: 2.2,// each additional gifter wagon in the same pass adds this much
-    maxGiftersPerRun: 3,    // more gifters wait for the next pass (queued, never interrupted)
+    maxGiftersPerRun: 3,    // (legacy) see maxWagonsPerRun
+    maxWagonsPerRun: 6,     // gifter wagons per pass; the rest wait for the next pass (queued, never interrupted)
+    bombMin: 5,             // gifts ≥ this get their own SUB BOMB cannon wagon; smaller gifts share squad wagons (5 seats)
     aggregateWindowMs: 1800,// gifts from the same user inside this window merge into one wagon
     startDelayMs: 1200,     // wait a moment after the first event so bulk gifts can arrive
     triggerOn: { sub: true, resub: true, gift: true, hypetrain: true },
@@ -46,6 +48,7 @@ window.WT = window.WT || {};
       { min: 25, kind: 'carpet', label: 'CARPET BOMBING', extra: 1.6 },
       { min: 50, kind: 'nuke', label: 'TACTICAL NUKE', extra: 3.6 },
     ],
+    theme: 'steel',         // steel | chrome | blackgold | crimson | desert | arctic | toxic
     warIntensity: 1,        // 0..1 ambient battlefield (distant explosions, flak, searchlights)
     trainScale: 1.15,       // size of the train on screen
 
@@ -74,6 +77,12 @@ window.WT = window.WT || {};
         { username: 'Warlord_Wim', giftCount: 50, tier: '1000' },
         { username: 'PvtRyan', giftCount: 1, tier: '1000' },
       ],
+      squad: [
+        { username: 'PvtRyan', giftCount: 1, tier: '1000' },
+        { username: 'Kilo141', giftCount: 3, tier: '1000' },
+        { username: 'LtLemon', giftCount: 2, tier: '1000' },
+        { username: 'SnipeQueen', giftCount: 1, tier: '1000' },
+      ],
       recruits: [
         { username: 'PvtPixel', type: 'sub' },
         { username: 'MajorTom_NL', type: 'resub', months: 14 },
@@ -100,10 +109,12 @@ window.WT = window.WT || {};
     if (p.get('source')) o.source = p.get('source');
     if (p.get('sse')) o.sseUrl = p.get('sse');
     if (p.get('quality')) o.quality = p.get('quality');
+    if (p.get('theme')) o.theme = p.get('theme');
     if (p.get('war')) o.warIntensity = Math.max(0, Math.min(1, +p.get('war')));
     if (p.get('avatars')) o.avatarLookup = p.get('avatars');
     if (p.get('persist') === '0') o.persist = false;
-    if (p.get('maxGifters')) o.maxGiftersPerRun = Math.max(1, +p.get('maxGifters') || 3);
+    if (p.get('maxGifters')) o.maxWagonsPerRun = Math.max(1, +p.get('maxGifters') || 6);
+    if (p.get('maxWagons')) o.maxWagonsPerRun = Math.max(1, +p.get('maxWagons') || 6);
     if (p.get('sound') === '1') o.sound = { enabled: true };
     if (p.get('volume')) (o.sound = o.sound || {}).volume = +p.get('volume');
     return o;

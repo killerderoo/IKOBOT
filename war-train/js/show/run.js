@@ -9,7 +9,7 @@ window.WT = window.WT || {};
   'use strict';
   const U = WT.U, P = WT.P;
   const C = 960, GAP = 26;
-  const ACCENT = '#ff7a1a', GOLD = '#ffc840';
+  const TH = WT.theme; // live theme colours (WT.applyTheme)
 
   class Run {
     constructor(ctrl, payload) {
@@ -20,20 +20,28 @@ window.WT = window.WT || {};
       this.p = payload;
       // scene 3 timing: one slot per gifter, stretched for big SUB BOMB killstreaks
       this.strikes = new WT.StrikeManager(this.fx, this.sound);
+      const wagons = payload.wagons || payload.gifters.map((g) => ({ type: 'bomb', g }));
       const slots = [];
       let Tc = 5.5;
-      payload.gifters.forEach((g, i) => {
-        const ex = WT.killstreakFor(g.giftCount).extra || 0;
+      wagons.forEach((w) => {
+        let ex = 0.3;
+        if (w.type === 'bomb') {
+          const ks = WT.killstreakFor(w.g.giftCount);
+          ex = (ks.extra || 0) * (1 + (WT.bombScale(w.g.giftCount, ks) - 1) * 0.6);
+        }
         slots.push({ Tc, ex });
         Tc += cfg.extraGifterSeconds + ex;
       });
+      // hype train level drives how hard the whole train fights
+      this.level = Math.max(1, (payload.hype && payload.hype.level) || 1);
+      this.warMul = 0.6 + 0.25 * Math.min(this.level, 6);
       const last = slots[slots.length - 1];
       const G = (this.G = last ? last.Tc - 5.5 + last.ex : 0);
       this.D = cfg.showDuration + G;
 
       // --- composition (front → rear) -------------------------------------
       this.loco = new WT.Locomotive();
-      this.gifterCars = payload.gifters.map((g) => new WT.GifterCannonWagon(g));
+      this.gifterCars = wagons.map((w) => (w.type === 'squad' ? new WT.SquadWagon(w.members) : new WT.GifterCannonWagon(w.g)));
       this.hype = new WT.ThemedWagon('hype', { hype: payload.hype, t0: 7 + G - 0.8 });
       this.blackops = new WT.ThemedWagon('blackops', { recruits: payload.recruits.slice(0, 2) });
       this.warzone = new WT.ThemedWagon('warzone', { recruits: payload.recruits.slice(2, 4) });
@@ -116,6 +124,24 @@ window.WT = window.WT || {};
       }
       // Scene 3 — gifter cannon wagons
       this.gifterCars.forEach((car) => {
+        if (car.kind === 'squad') {
+          const names = car.members.map((m) => m.username), total = car.members.reduce((a, m) => a + m.giftCount, 0);
+          this.at(car.Tc - 1.6, () => this.sound.play('clank'));
+          this.at(car.Tc + 0.05, () => this.strikes.start({ username: names[0], names, giftCount: total }, car.Tc + 0.05, { kind: 'supply', label: 'SQUAD DEPLOYED', extra: 0 }));
+          car.members.forEach((m, i) => {
+            const st = car.salutes[i];
+            this.at(st, () => {
+              const sx = this.sxOf(car, st), dy = car.bob(sx, st), p = car.seatTop(i, sx, dy);
+              fx.blast(p.x, p.y + 30, -Math.PI / 2, { target: [p.x + fx.r(-30, 30), p.y - 230 - fx.r(0, 60)], life: 0.45, gold: true, scale: 0.75 + m.giftCount * 0.1, size: 18 });
+              fx.flash(p.x, p.y + 40, 120, -Math.PI / 2, { life: 0.08, color: 'white' });
+              this.fire(car, car.mg, st, { tracer: true });
+              this.sound.play('cannon', { gain: 0.5 });
+              this.ctrl.onGifterFired(m);
+            });
+          });
+          for (let tt = car.Tc; tt < car.Tc + 1.3; tt += 0.08) this.at(tt, ((T) => () => this.fire(car, car.mg, T, { tracer: true }))(tt));
+          return;
+        }
         const g = car.g;
         this.at(car.Tc - 1.65, () => this.sound.play('clank'));
         this.at(car.Tc - 0.55, () => this.sound.play('reload'));
@@ -146,8 +172,11 @@ window.WT = window.WT || {};
       ag[0].aimTo(9.9 + G, 10.5 + G, -0.72);
       ag[1].aimTo(9.9 + G, 10.5 + G, -0.98);
       ag[2].aimTo(9.9 + G, 10.5 + G, -0.62);
-      const targets = [[[560, 250], [960, 150], [1360, 250]], [[700, 330], [1080, 200], [1500, 300]], [[460, 320], [860, 210], [1240, 160]]];
-      [Ta - 0.9, Ta - 0.1, Ta + 0.7].forEach((tv, v) => {
+      const nV = 2 + Math.min(4, this.level);
+      const vTimes = [];
+      for (let v = 0; v < nV; v++) vTimes.push(Ta - 1.0 + (2.0 * v) / (nV - 1));
+      const targets = vTimes.map((_, v) => [0, 1, 2].map((i) => [360 + i * 400 + ((v * 137) % 260), 150 + ((v * 71 + i * 53) % 190)]));
+      vTimes.forEach((tv, v) => {
         if (v === 0) this.at(tv, () => this.sound.play('sting', { gain: 1.2 }));
         ag.forEach((gn, i) => {
           const T = tv + i * 0.05;
@@ -155,6 +184,12 @@ window.WT = window.WT || {};
         });
       });
       ag.forEach((gn, i) => gn.aimTo(Ta + 1.3, Ta + 2.0, gn.rest));
+      // Hype-train level attacks: the higher the level, the more the sky joins in
+      const L = this.level, lv = { username: `HYPE LV ${L}`, giftCount: 0 };
+      if (L >= 2) this.strikes.start(lv, 7.0 + G, { kind: 'airstrike', noCard: true, scale: 0.8 + 0.1 * L, jets: Math.min(6, L) });
+      if (L >= 3) this.strikes.start(lv, 9.0 + G, { kind: 'chopper', noCard: true, scale: L >= 5 ? 1.5 : 1 });
+      if (L >= 4) this.strikes.start(lv, 12.2 + G, { kind: 'carpet', noCard: true, scale: L >= 6 ? 1.5 : 1 });
+      if (L >= 5) this.strikes.start(lv, 10.4 + G, { kind: 'airstrike', noCard: true, scale: 1.4 });
       // Scene 6 — departure
       this.at(13.1 + G, () => this.sound.play('whistle', { gain: 0.6 }));
       this.at(13.3 + G, () => {
@@ -180,7 +215,7 @@ window.WT = window.WT || {};
       this.strikes.update(t, dt);
       const fx = this.fx, D = this.D, off = this.off(t), v = this.vel(t);
       // ambient battlefield: distant impacts, flak and burning damage on the wagons
-      const war = WT.cfg.warIntensity * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
+      const war = WT.cfg.warIntensity * this.warMul * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
       if (war > 0) {
         this.every('farboom', 0.75 * war, dt, () => fx.groundBlast(fx.r(80, 1840), 930, fx.r(0.3, 0.5), { layer: 'back', shake: false }));
         const flakOn = Math.sin(t * 1.7) > 0.2;
@@ -241,7 +276,7 @@ window.WT = window.WT || {};
       // scene 3 charge-up: energy converging on each gifter cannon muzzle
       for (const car of this.gifterCars) {
         const c = car.cannon;
-        if (t > c.chargeFrom && t < c.chargeTo) {
+        if (c && t > c.chargeFrom && t < c.chargeTo) {
           const sx = this.sxOf(car, t), m = c.muzzle(sx, car.bob(sx, t), t);
           this.every('chg' + car.g.username, 70, dt, () => {
             const a = fx.r(0, 6.283), r = fx.r(70, 150);
@@ -377,10 +412,10 @@ window.WT = window.WT || {};
       if (ia > 0) {
         ctx.globalAlpha = ia * (Math.sin(t * 18) > -0.6 ? 1 : 0.4);
         const txt = L.incoming.slice(0, Math.floor(U.inv(0.3, 1.2, t) * L.incoming.length));
-        ctx.fillStyle = ACCENT;
+        ctx.fillStyle = TH.accent;
         ctx.beginPath(); ctx.moveTo(130, 452); ctx.lineTo(150, 488); ctx.lineTo(110, 488); ctx.closePath(); ctx.fill();
         ctx.fillStyle = '#111'; ctx.font = `bold 24px ${P.FONT_UI}`; ctx.textAlign = 'center'; ctx.fillText('!', 130, 484);
-        P.glowText(ctx, txt, 170, 472, 34, '#ffd2a8', { align: 'left', glowColor: ACCENT, blur: 14 });
+        P.glowText(ctx, txt, 170, 472, 34, '#ffd2a8', { align: 'left', glowColor: TH.accent, blur: 14 });
         ctx.fillStyle = 'rgba(255,122,26,0.6)';
         ctx.fillRect(110, 500, 520 * U.inv(0.3, 1.4, t), 2);
         ctx.globalAlpha = 1;
@@ -394,7 +429,7 @@ window.WT = window.WT || {};
           const s = U.easeOutBack(U.inv(6.6 + G, 7.0 + G, t));
           ctx.save(); ctx.globalAlpha = ba; ctx.translate(hx, 600); ctx.scale(s, s);
           const txt = hy.event === 'complete' ? `HYPE TRAIN COMPLETE — LEVEL ${hy.level}` : `HYPE TRAIN LEVEL ${hy.level}!`;
-          P.glowText(ctx, txt, 0, 0, 50, GOLD, { glowColor: ACCENT, core: '#fff1cc', blur: 26 });
+          P.glowText(ctx, txt, 0, 0, 50, TH.gold, { glowColor: TH.accent, core: '#fff1cc', blur: 26 });
           ctx.restore();
         }
       }
@@ -419,12 +454,12 @@ window.WT = window.WT || {};
       ctx.scale(s, s);
       ctx.font = `86px ${P.FONT_STENCIL}`;
       const size = U.fitFont(ctx, L.thanks, 1500, 86, P.FONT_STENCIL);
-      P.glowText(ctx, L.thanks, 0, 0, size, ACCENT, { core: '#ffe6cc', blur: 30 });
+      P.glowText(ctx, L.thanks, 0, 0, size, TH.accent, { core: '#ffe6cc', blur: 30 });
       ctx.restore();
       if (k < 1) P.glowSprite(ctx, WT.sprites.white, C, 300, 1200 * (1 - k), (1 - k) * 0.6);
       // rule lines
       const lw = 700 * U.easeOutCubic(U.inv(t0 + 0.2, t0 + 0.7, t));
-      ctx.fillStyle = ACCENT;
+      ctx.fillStyle = TH.accent;
       ctx.fillRect(C - lw, 352, lw * 2, 2);
       // roster chips (most recent gifters) — measured so they never overlap
       const list = this.p.recent.slice(0, 5);
@@ -444,13 +479,13 @@ window.WT = window.WT || {};
           ctx.globalAlpha = alpha * a;
           ctx.fillStyle = 'rgba(10,10,11,0.9)';
           U.chamfer(ctx, cx, y, w, fs + 26, 8); ctx.fill();
-          ctx.strokeStyle = i === 0 ? GOLD : ACCENT; ctx.lineWidth = 2; ctx.stroke();
-          P.crown(ctx, cx + 30, y + (fs + 26) / 2, fs * 0.9, GOLD);
+          ctx.strokeStyle = i === 0 ? TH.gold : TH.accent; ctx.lineWidth = 2; ctx.stroke();
+          P.crown(ctx, cx + 30, y + (fs + 26) / 2, fs * 0.9, TH.gold);
           ctx.font = `700 ${fs}px ${P.FONT_UI}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
           ctx.fillStyle = '#f4efe6';
           const nm = U.cleanName(g.username);
           ctx.fillText(nm, cx + 56, y + (fs + 26) / 2 + 1);
-          ctx.fillStyle = GOLD;
+          ctx.fillStyle = TH.gold;
           ctx.fillText(`×${g.giftCount}`, cx + 56 + ctx.measureText(nm + '  ').width, y + (fs + 26) / 2 + 1);
         }
         cx += widths[i] + 18;
@@ -459,7 +494,7 @@ window.WT = window.WT || {};
       ctx.globalAlpha = alpha * U.inv(t0 + 0.6, t0 + 0.9, t);
       const cr = this.p.counter;
       const cnt = Math.round(U.lerp(cr[0], cr[1], U.easeOutCubic(U.inv(t0 + 0.6, t0 + 1.8, t))));
-      P.glowText(ctx, `${L.total}: ${cnt}`, C, 474, 34, GOLD, { font: P.FONT_STENCIL, glowColor: ACCENT, blur: 16 });
+      P.glowText(ctx, `${L.total}: ${cnt}`, C, 474, 34, TH.gold, { font: P.FONT_STENCIL, glowColor: TH.accent, blur: 16 });
       ctx.restore();
     }
   }

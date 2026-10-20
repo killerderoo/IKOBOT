@@ -22,6 +22,8 @@
       gift25: () => send(M.gift(25)),
       gift50: () => send(M.gift(50, 'SupremeCommander_With_A_Long_Name'.slice(0, 25))),
       multi: () => { send(M.gift(1)); send(M.gift(5)); send(M.gift(10)); },
+      squad: () => { ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].forEach((n, i) => send(M.gift(1 + (i % 4), n + '_' + Math.floor(Math.random() * 99)))); },
+      gift100: () => send(M.gift(100, 'Overlord_100')),
       burst: () => { const n = 'TripleTap'; send(M.gift(1, n)); setTimeout(() => send(M.gift(1, n)), 300); setTimeout(() => send(M.gift(3, n)), 700); },
       sub: () => send(M.sub()),
       resub: () => send(M.resub()),
@@ -33,6 +35,16 @@
       send({ type: 'gift', id: 'custom-' + Date.now(), username: $('#name').value || 'CustomGifter', count: +$('#count').value || 1, avatarUrl: $('#avatar').value.trim() });
     });
 
+    const th = $('#theme');
+    Object.keys(WT.THEMES).forEach((k) => { const o = document.createElement('option'); o.value = k; o.textContent = WT.THEMES[k].label; th.appendChild(o); });
+    th.value = api.config.theme;
+    th.addEventListener('change', () => { api.setTheme(th.value); log('THEME ' + th.value + ' (next pass)'); });
+    $('#level').addEventListener('change', (e) => {
+      const L = +e.target.value;
+      api.config.demo.hype.level = L;
+      Object.assign(ctrl.hype, { level: L });
+      log('HYPE LEVEL ' + L + ' (next pass)');
+    });
     $('#loop').checked = api.config.mode === 'loop';
     $('#loop').addEventListener('change', (e) => { api.config.mode = e.target.checked ? 'loop' : 'events'; });
     $('#sound').addEventListener('change', (e) => api.setSound(e.target.checked));

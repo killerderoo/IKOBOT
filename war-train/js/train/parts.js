@@ -11,18 +11,50 @@ window.WT = window.WT || {};
   P.WHEEL_Y = 918;
   P.WHEEL_R = 30;
 
-  const TONES = [
-    ['#5a6169', '#33393f', '#1a1d21'], // gunmetal
-    ['#3d4146', '#22262a', '#101214'], // dark steel
-    ['#2a2c2f', '#17181a', '#0a0a0b'], // matte black
-    ['#55503f', '#36332a', '#1c1b16'], // olive drab
-  ];
+  // ---- colour themes ---------------------------------------------------------------------
+  // Each theme: metal base colour (light/mid/dark), a secondary armour colour, and accent colours.
+  const THEMES = {
+    steel:     { label: 'Blue steel',   metal: ['#a9b6c4', '#556270', '#161b21'], second: ['#8c8a70', '#4a4a38', '#17170f'], accent: '#ff7a1a', hot: '#ff3b1f', gold: '#ffc840', rust: 0.6 },
+    chrome:    { label: 'Chrome',       metal: ['#e4e9ee', '#7d8892', '#1e2328'], second: ['#9aa2aa', '#4a525a', '#14181c'], accent: '#33d1ff', hot: '#ff3b5c', gold: '#ffd34d', rust: 0.25 },
+    blackgold: { label: 'Black & gold', metal: ['#6e6e74', '#2a2a2f', '#08080a'], second: ['#8a7440', '#4a3c1c', '#140f06'], accent: '#ffb52e', hot: '#ff5a1f', gold: '#ffd76b', rust: 0.35 },
+    crimson:   { label: 'Crimson ops',  metal: ['#9a9ea4', '#454a50', '#121416'], second: ['#8a2a24', '#4a1410', '#160606'], accent: '#ff2d2d', hot: '#ff6a3d', gold: '#ffc840', rust: 0.5 },
+    desert:    { label: 'Desert storm', metal: ['#d8c49a', '#8a7650', '#2c2416'], second: ['#9a8a5a', '#5a4e30', '#1e1a0e'], accent: '#ff8a2a', hot: '#ff4a1f', gold: '#ffd060', rust: 0.8 },
+    arctic:    { label: 'Arctic',       metal: ['#f2f5f8', '#a3afbb', '#3e4852'], second: ['#c8d2dc', '#7a8794', '#2a323a'], accent: '#36b8ff', hot: '#ff4a6a', gold: '#ffd34d', rust: 0.2 },
+    toxic:     { label: 'Toxic',        metal: ['#9aa494', '#454e42', '#121610'], second: ['#5c6a3a', '#33401e', '#10140a'], accent: '#7dff3a', hot: '#ffe03a', gold: '#d8ff6a', rust: 0.6 },
+  };
+  WT.THEMES = THEMES;
+  const T = (WT.theme = {});
+  const shade = (hex, f) => {
+    const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v * f)));
+    return `rgb(${c(r)},${c(g)},${c(b)})`;
+  };
+  let TONES = [];
+  WT.applyTheme = (name) => {
+    const th = THEMES[name] || THEMES.steel;
+    Object.assign(T, th, { name: THEMES[name] ? name : 'steel' });
+    const m = th.metal, s2 = th.second;
+    TONES = [
+      m,                                                       // main armour
+      [shade(m[0], 0.78), shade(m[1], 0.72), shade(m[2], 0.8)], // darker plates
+      [shade(m[0], 0.5), shade(m[1], 0.45), shade(m[2], 0.6)],  // near-black
+      s2,                                                      // secondary armour
+    ];
+  };
+  WT.applyTheme('steel');
 
+  // Polished-metal gradient: bright top edge, soft reflection band, dark lower half, bounce light.
   P.metal = (ctx, y0, y1, tone) => {
     const t = TONES[tone || 0], g = ctx.createLinearGradient(0, y0, 0, y1);
     g.addColorStop(0, t[0]);
-    g.addColorStop(0.18, t[1]);
-    g.addColorStop(1, t[2]);
+    g.addColorStop(0.06, t[0]);
+    g.addColorStop(0.16, t[1]);
+    g.addColorStop(0.34, t[1]);
+    g.addColorStop(0.42, t[0]);
+    g.addColorStop(0.5, t[1]);
+    g.addColorStop(0.82, t[2]);
+    g.addColorStop(0.94, t[2]);
+    g.addColorStop(1, t[1]);
     return g;
   };
 
@@ -70,7 +102,7 @@ window.WT = window.WT || {};
     ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
     ctx.fillStyle = '#121212';
     ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = color || '#e8701c';
+    ctx.fillStyle = color || T.accent;
     for (let i = -h; i < w + h; i += 22) {
       ctx.beginPath();
       ctx.moveTo(x + i, y + h);
@@ -233,7 +265,7 @@ window.WT = window.WT || {};
     ctx.beginPath(); ctx.arc(cx, cy, r * 0.3, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#8a9199';
     for (let k = 0; k < 6; k++) { const a = ang + k * 1.047; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r * 0.2, cy + Math.sin(a) * r * 0.2, 1.3, 0, 6.283); ctx.fill(); }
-    ctx.fillStyle = '#ff7a1a';
+    ctx.fillStyle = T.accent;
     ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 6.283); ctx.fill();
   };
 
@@ -317,7 +349,7 @@ window.WT = window.WT || {};
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = `rgba(255,${120 + 80 * o.heat | 0},40,${o.heat})`;
-        ctx.shadowColor = '#ff7a1a';
+        ctx.shadowColor = T.accent;
         ctx.shadowBlur = 20 * o.heat;
         ctx.fillRect(cx + 2, -thick * 0.5, thick * 0.35 - 4, thick);
         ctx.restore();
@@ -411,7 +443,7 @@ window.WT = window.WT || {};
   P.flag = (ctx, x, yTop, poleH, w, h, t, accent) => {
     ctx.fillStyle = '#2a2d31';
     ctx.fillRect(x - 2, yTop, 4, poleH);
-    ctx.fillStyle = '#ff7a1a';
+    ctx.fillStyle = T.accent;
     ctx.beginPath(); ctx.arc(x, yTop, 4, 0, 6.283); ctx.fill();
     // waving cloth (flows backward = left, since the train moves right)
     const seg = 14;
@@ -695,7 +727,7 @@ window.WT = window.WT || {};
     for (let i = 0; i < w / 20; i++) {
       const sx = r() * w, sy = 620 + r() * 230, len = 18 + r() * 70;
       const sg = x.createLinearGradient(0, sy, 0, sy + len);
-      sg.addColorStop(0, `rgba(140,66,24,${0.35 + r() * 0.25})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
+      sg.addColorStop(0, `rgba(140,66,24,${(0.35 + r() * 0.25) * T.rust})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
       x.fillStyle = sg; x.fillRect(sx, sy, 1.2 + r() * 3, len);
     }
     x.strokeStyle = 'rgba(210,214,220,0.16)';
@@ -707,6 +739,16 @@ window.WT = window.WT || {};
     for (let i = 0; i < w * 6; i++) {
       x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.09)';
       x.fillRect(r() * w, top + r() * (bot - top), 1.5, 1.5);
+    }
+    // metallic sheen: soft diagonal specular streaks catching the light
+    x.globalCompositeOperation = 'source-atop';
+    for (let i = 0; i < Math.ceil(w / 120); i++) {
+      const sx = r() * w, sw = 18 + r() * 40;
+      const sg = x.createLinearGradient(sx, 0, sx + sw, 0);
+      sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, `rgba(235,242,250,${0.06 + r() * 0.06})`); sg.addColorStop(1, 'rgba(255,255,255,0)');
+      x.save(); x.translate(sx, 0); x.transform(1, 0, -0.35, 1, 0, 0); x.translate(-sx, 0);
+      x.fillStyle = sg; x.fillRect(sx, top, sw, bot - top);
+      x.restore();
     }
     for (let i = 0; i < (o.holes || 0); i++) {
       const cx = 30 + r() * (w - 60), cy = 700 + r() * 150, hr = 2.5 + r() * 3;

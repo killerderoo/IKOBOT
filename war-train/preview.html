@@ -23,7 +23,9 @@
         <button data-ev="gift10">10 · Chopper</button>
         <button data-ev="gift25">25 · Carpet bomb</button>
         <button data-ev="gift50" class="nuke">50 · TACTICAL NUKE</button>
-        <button data-ev="multi">3 gifters at once</button>
+        <button data-ev="squad">5 small gifters (squad)</button>
+        <button data-ev="gift100" class="nuke">100 · MEGA NUKE</button>
+        <button data-ev="multi">Mixed: 1 + 5 + 10</button>
         <button data-ev="burst">Same gifter ×3</button>
         <button data-ev="sub">New sub</button>
         <button data-ev="resub">Resub</button>
@@ -38,6 +40,12 @@
       <h3>Playback</h3>
       <label class="row"><input type="checkbox" id="loop"> Loop demo when idle</label>
       <label class="row"><input type="checkbox" id="sound"> Sound (muted by default)</label>
+      <label class="row">Theme
+        <select id="theme"></select>
+      </label>
+      <label class="row">Hype level (attacks)
+        <select id="level"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select>
+      </label>
       <label class="row">Background
         <select id="bg"><option value="checker">Transparency checker</option><option value="game">Fake game footage</option><option value="black">Black</option><option value="green">Green</option></select>
       </label>

@@ -25,7 +25,9 @@ window.addEventListener('onWidgetLoad', function (obj) {
     source: 'streamelements',
     mode: f.loopDemo === true || f.loopDemo === 'true' ? 'loop' : 'events',
     quality: f.quality || 'high',
-    maxGiftersPerRun: +f.maxGifters || 3,
+    maxWagonsPerRun: +f.maxGifters || 6,
+    theme: f.theme || 'steel',
+    warIntensity: f.war != null ? +f.war : 1,
     persist: true,
     sound: { enabled: f.soundEnabled === true || f.soundEnabled === 'true', volume: f.volume != null ? +f.volume : 0.5 },
     labels: {
@@ -39,7 +41,9 @@ window.addEventListener('onWidgetLoad', function (obj) {
 fs.writeFileSync(path.join(se, 'fields.json'), JSON.stringify({
   loopDemo: { type: 'checkbox', label: 'Loop demo train (testing only)', value: false },
   quality: { type: 'dropdown', label: 'Effects quality', value: 'high', options: { high: 'High', low: 'Low (weak PCs)' } },
-  maxGifters: { type: 'number', label: 'Max gifter wagons per pass', value: 3, min: 1, max: 6 },
+  theme: { type: 'dropdown', label: 'Colour theme', value: 'steel', options: { steel: 'Blue steel', chrome: 'Chrome', blackgold: 'Black & gold', crimson: 'Crimson ops', desert: 'Desert storm', arctic: 'Arctic', toxic: 'Toxic' } },
+  war: { type: 'slider', label: 'Battlefield intensity', value: 1, min: 0, max: 1, step: 0.1 },
+  maxGifters: { type: 'number', label: 'Max gifter wagons per pass', value: 6, min: 1, max: 10 },
   soundEnabled: { type: 'checkbox', label: 'Sound (placeholder synth)', value: false },
   volume: { type: 'slider', label: 'Volume', value: 0.5, min: 0, max: 1, step: 0.05 },
   labelGifter: { type: 'text', label: 'Gifter wagon label', value: 'SUB GIFTER' },

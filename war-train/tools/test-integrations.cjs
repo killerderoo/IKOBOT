@@ -36,7 +36,7 @@ const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name
       fire('subscriber-latest', { _id: 'a4', name: 'Newbie', amount: 1, tier: '1000' }); // duplicate delivery
       fire('follower-latest', { name: 'ignored' });
       const c = window.WarTrain.controller;
-      return { gifters: c.pendingGifters.map((g) => `${g.username}x${g.giftCount}/${g.tier}`), recruits: c.pendingRecruits.map((x) => `${x.type}:${x.username}:${x.months}`), cfg: [window.WarTrain.config.quality, window.WarTrain.config.maxGiftersPerRun, window.WarTrain.config.sound.enabled] };
+      return { gifters: c.pendingGifters.map((g) => `${g.username}x${g.giftCount}/${g.tier}`), recruits: c.pendingRecruits.map((x) => `${x.type}:${x.username}:${x.months}`), cfg: [window.WarTrain.config.quality, window.WarTrain.config.maxWagonsPerRun, window.WarTrain.config.sound.enabled] };
     });
     check('SE bulk gift counted once, recipients ignored', JSON.stringify(r.gifters) === JSON.stringify(['BulkBossx5/1000', 'SingleGifterx1/2000']), JSON.stringify(r.gifters));
     check('SE sub + resub mapped, duplicate dropped', JSON.stringify(r.recruits) === JSON.stringify(['resub:Veteran:9', 'sub:Newbie:1']), JSON.stringify(r.recruits));
@@ -72,6 +72,16 @@ const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name
     const staticFile = await fetch(`${base}/server/.env.example`).then((r) => r.status);
     check('relay never serves server/ files', staticFile === 403, 'status ' + staticFile);
     check('relay page has no errors', errors.length === 0, errors.join(' | '));
+    // wagon allocation: gifts < 5 share squad wagons of 5 seats, every SUB BOMB gets its own wagon
+    const alloc = await page.evaluate(() => {
+      const W = window.WarTrain, c = W.controller;
+      while (c.run) W.step(60);
+      c.pendingGifters.length = 0;
+      [1, 2, 1, 3, 1, 25, 1, 4].forEach((n, i) => W.handle({ type: 'gift', id: 'alloc' + i, username: 'U' + i, count: n }));
+      while (!c.run) W.step(1);
+      return c.run.p.wagons.map((w) => (w.type === 'bomb' ? 'bomb:' + w.g.giftCount : 'squad:' + w.members.length));
+    });
+    check('squads of max 5 small gifters + own wagon per SUB BOMB', JSON.stringify(alloc) === JSON.stringify(['squad:5', 'bomb:25', 'squad:2']), JSON.stringify(alloc));
     await page.close();
     srv.kill();
   }

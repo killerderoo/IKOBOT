@@ -6,7 +6,10 @@ const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
 const SCENES = [
+  { name: 'squad', gifts: [1, 3, 2, 1, 4], times: [5.7, 6.4] },
+  { name: 'nuke100', count: 100, times: [8.3, 9.6, 11.2] },
   { name: 'loco', count: 1, times: [1.0, 2.7] },
+  ...['chrome', 'blackgold', 'crimson', 'desert', 'arctic', 'toxic'].map((th) => ({ name: 'theme_' + th, theme: th, count: 5, times: [3.0] })),
   { name: 'supply', count: 1, times: [5.75] },
   { name: 'airstrike', count: 5, times: [6.25, 6.85] },
   { name: 'chopper', count: 10, times: [7.3, 8.2] },
@@ -24,12 +27,14 @@ const SCENES = [
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.goto('file://' + path.resolve(__dirname, '../index.html') + '?export=1&mode=events&persist=0');
     await page.waitForFunction(() => window.WarTrain && window.WarTrain.step);
-    await page.evaluate((n) => {
+    await page.evaluate(([n, gifts, theme]) => {
       const W = window.WarTrain;
-      W.handle(W.mock.gift(n, n >= 50 ? 'Warlord_Wim' : n >= 25 ? 'SgtKilljoy' : n >= 10 ? 'Nightfall_NL' : n >= 5 ? 'GhostRecon_77' : 'PvtRyan'));
+      if (theme) W.setTheme(theme);
+      if (gifts) gifts.forEach((c, i) => W.handle(W.mock.gift(c, ['PvtRyan', 'Kilo141', 'LtLemon', 'SnipeQueen', 'Havoc_X'][i])));
+      else W.handle(W.mock.gift(n, n >= 50 ? 'Warlord_Wim' : n >= 25 ? 'SgtKilljoy' : n >= 10 ? 'Nightfall_NL' : n >= 5 ? 'GhostRecon_77' : 'PvtRyan'));
       W.handle(W.mock.resub('MajorTom_NL', 14)); W.handle(W.mock.sub('PvtPixel')); W.handle(W.mock.hypeLevel(3));
       while (!W.controller.run) W.step(1);
-    }, sc.count);
+    }, [sc.count, sc.gifts, sc.theme]);
     let f = 0;
     for (const t of sc.times) {
       const n = Math.round(t * 60);
