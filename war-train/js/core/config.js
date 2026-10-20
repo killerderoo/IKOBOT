@@ -34,8 +34,20 @@ window.WT = window.WT || {};
       synth: true,          // procedural placeholder sounds when no file is configured
       files: {              // drop files in assets/sfx/ and list them here to replace the synth
         rumble: '', whistle: '', clank: '', cannon: '', reload: '', steam: '', sting: '',
+        explosion: '', jet: '', siren: '', chopper: '', minigun: '',
       },
     },
+
+    // SUB BOMB killstreaks: the biggest matching `min` wins. `extra` = seconds added to the pass so
+    // the strike can play out while the gifter's wagon is on screen.
+    killstreaks: [
+      { min: 5, kind: 'airstrike', label: 'PRECISION AIRSTRIKE', extra: 0.5 },
+      { min: 10, kind: 'chopper', label: 'CHOPPER GUNNER', extra: 1.4 },
+      { min: 25, kind: 'carpet', label: 'CARPET BOMBING', extra: 1.6 },
+      { min: 50, kind: 'nuke', label: 'TACTICAL NUKE', extra: 3.6 },
+    ],
+    warIntensity: 1,        // 0..1 ambient battlefield (distant explosions, flak, searchlights)
+    trainScale: 1.15,       // size of the train on screen
 
     labels: {
       gifter: 'SUB GIFTER',
@@ -57,8 +69,10 @@ window.WT = window.WT || {};
     demo: {
       gifters: [
         { username: 'GhostRecon_77', giftCount: 5, tier: '1000' },
-        { username: 'SgtKilljoy', giftCount: 20, tier: '1000' },
-        { username: 'xX_Nightfall_Xx', giftCount: 1, tier: '2000' },
+        { username: 'SgtKilljoy', giftCount: 25, tier: '1000' },
+        { username: 'xX_Nightfall_Xx', giftCount: 10, tier: '2000' },
+        { username: 'Warlord_Wim', giftCount: 50, tier: '1000' },
+        { username: 'PvtRyan', giftCount: 1, tier: '1000' },
       ],
       recruits: [
         { username: 'PvtPixel', type: 'sub' },
@@ -86,6 +100,7 @@ window.WT = window.WT || {};
     if (p.get('source')) o.source = p.get('source');
     if (p.get('sse')) o.sseUrl = p.get('sse');
     if (p.get('quality')) o.quality = p.get('quality');
+    if (p.get('war')) o.warIntensity = Math.max(0, Math.min(1, +p.get('war')));
     if (p.get('avatars')) o.avatarLookup = p.get('avatars');
     if (p.get('persist') === '0') o.persist = false;
     if (p.get('maxGifters')) o.maxGiftersPerRun = Math.max(1, +p.get('maxGifters') || 3);

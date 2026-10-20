@@ -18,8 +18,17 @@ window.WT = window.WT || {};
       this.fx = ctrl.fx;
       this.sound = ctrl.sound;
       this.p = payload;
-      const n = payload.gifters.length;
-      const G = (this.G = Math.max(0, n - 1) * cfg.extraGifterSeconds);
+      // scene 3 timing: one slot per gifter, stretched for big SUB BOMB killstreaks
+      this.strikes = new WT.StrikeManager(this.fx, this.sound);
+      const slots = [];
+      let Tc = 5.5;
+      payload.gifters.forEach((g, i) => {
+        const ex = WT.killstreakFor(g.giftCount).extra || 0;
+        slots.push({ Tc, ex });
+        Tc += cfg.extraGifterSeconds + ex;
+      });
+      const last = slots[slots.length - 1];
+      const G = (this.G = last ? last.Tc - 5.5 + last.ex : 0);
       this.D = cfg.showDuration + G;
 
       // --- composition (front → rear) -------------------------------------
@@ -42,9 +51,9 @@ window.WT = window.WT || {};
       const ctr = (car, shift) => C + (shift || 0) - (car.left + car.w / 2);
       const K = [[0, -760], [1.2, 150], [3.0, ctr(this.loco)]];
       this.gifterCars.forEach((car, i) => {
-        const Tc = 5.5 + i * cfg.extraGifterSeconds;
-        K.push([Tc - 0.9, ctr(car, -75)], [Tc + 0.9, ctr(car, 75)]);
-        car.schedule(Tc);
+        const sl = slots[i];
+        K.push([sl.Tc - 0.9, ctr(car, -75)], [sl.Tc + 0.9 + sl.ex, ctr(car, 75)]);
+        car.schedule(sl.Tc);
       });
       K.push([8.3 + G, ctr(this.blackops)]);
       K.push([10.6 + G, ctr(this.art, -60)], [12.4 + G, ctr(this.art, 60)]);
@@ -117,6 +126,7 @@ window.WT = window.WT || {};
             });
             fx.blast(m.x, m.y, m.a, { target: [m.x + 470 + k * 60, m.y - 300 - k * 40], life: 0.55, gold: g.giftCount >= 10 || k === 0, scale: k === 0 ? 1.4 : 1, size: k === 0 ? 30 : 22 });
             if (k === 0) {
+              this.strikes.start(g, st + 0.05);
               this.ctrl.onGifterFired(g);
               this.sound.play('sting', { gain: 0.8 });
             }
@@ -167,7 +177,34 @@ window.WT = window.WT || {};
         this.ci++;
       }
       this.prevT = t;
+      this.strikes.update(t, dt);
       const fx = this.fx, D = this.D, off = this.off(t), v = this.vel(t);
+      // ambient battlefield: distant impacts, flak and burning damage on the wagons
+      const war = WT.cfg.warIntensity * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
+      if (war > 0) {
+        this.every('farboom', 0.75 * war, dt, () => fx.groundBlast(fx.r(80, 1840), 930, fx.r(0.3, 0.5), { layer: 'back', shake: false }));
+        const flakOn = Math.sin(t * 1.7) > 0.2;
+        if (flakOn) {
+          if (!this.flakX || fx.rnd() < 0.01) this.flakX = fx.r(150, 1770);
+          this.every('flak', 14 * war, dt, () => fx.tracer(this.flakX + fx.r(-8, 8), 930, -1.25 + Math.sin(t * 2.3) * 0.25, { layer: 'back', speed: 1500, len: 70, life: 0.55, color: '255,110,50' }));
+        }
+        this.every('puff', 1.6 * war, dt, () => {
+          const x = fx.r(200, 1720), y = fx.r(250, 470);
+          fx.flash(x, y, 120, 0, { layer: 'back', life: 0.08, color: 'white', alpha: 0.6 });
+          fx.smoke(x, y, { n: 3, kind: 'soot', size: 34, spread: 10, vy: -10, jitter: 25, life: 2.2, alpha: 0.75, layer: 'back' });
+          fx.sparks(x, y, { n: 6, speed: 300, gravity: 300, life: 0.6 });
+        });
+      }
+      for (const car of this.cars) {
+        if (!car.fires) continue;
+        const sx = car.left + off;
+        if (sx > 2000 || sx + car.w < -100) continue;
+        const dy = car.bob(sx, t);
+        car.fires.forEach((f, i) => {
+          this.every(`fire${car.kind}${i}`, 22 * f[2], dt, () => fx.fire(sx + f[0], f[1] + dy, { n: 1, size: 20 * f[2], vx: -60, vy: -60, life: 0.7, spread: 10 * f[2] }));
+          this.every(`soot${car.kind}${i}`, 6 * f[2], dt, () => fx.smoke(sx + f[0], f[1] + dy - 20, { n: 1, kind: 'soot', size: 30 * f[2], vx: -80, vy: -70, life: 2, alpha: 0.7, layer: 'front' }));
+        });
+      }
       const acc = (this.vel(t + 0.05) - this.vel(t - 0.05)) / 0.1;
 
       // battlefield smoke banks — heavy at the start, thin later, none near the end so the loop is clean
@@ -226,7 +263,12 @@ window.WT = window.WT || {};
     draw(ctx, t) {
       const off = this.off(t), v = this.vel(t), D = this.D;
       const st = { t, wheelAng: off / P.WHEEL_R, speed: Math.abs(v), tailFade: 1 - U.inv(13.9 + this.G, 14.8 + this.G, t) };
+      const S = WT.cfg.trainScale || 1, Y = WT.cfg.railY;
+      ctx.save();
+      ctx.translate(C, Y); ctx.scale(S, S); ctx.translate(-C, -Y);
+      this.drawSearchlights(ctx, t);
       this.drawGround(ctx, t, off);
+      this.strikes.drawBack(ctx, t);
       this.fx.draw(ctx, 'back');
       this.drawBeam(ctx, t, off);
       const dys = [];
@@ -245,7 +287,25 @@ window.WT = window.WT || {};
         P.chain(ctx, x1, y + 6, x2, y + 6, 5);
       }
       this.fx.draw(ctx, 'front');
+      ctx.restore();
       this.drawHud(ctx, t);
+      this.strikes.drawHud(ctx, t);
+    }
+
+    drawSearchlights(ctx, t) {
+      const a = WT.cfg.warIntensity * U.envelope(t, 0.2, this.D - 1.5, 1, 1.2);
+      if (a <= 0) return;
+      ctx.globalCompositeOperation = 'lighter';
+      [[260, 0.6, 0.0], [1680, 0.5, 2.0], [980, 0.4, 4.1]].forEach(([x, sp, ph]) => {
+        const ang = -Math.PI / 2 + Math.sin(t * sp + ph) * 0.55, L = 1200;
+        const ex = x + Math.cos(ang) * L, ey = 940 + Math.sin(ang) * L;
+        const g = ctx.createLinearGradient(x, 940, ex, ey);
+        g.addColorStop(0, `rgba(255,225,180,${0.16 * a})`); g.addColorStop(1, 'rgba(255,200,150,0)');
+        ctx.fillStyle = g;
+        const nx = -Math.sin(ang), ny = Math.cos(ang);
+        ctx.beginPath(); ctx.moveTo(x - nx * 8, 940 - ny * 8); ctx.lineTo(ex - nx * 110, ey - ny * 110); ctx.lineTo(ex + nx * 110, ey + ny * 110); ctx.lineTo(x + nx * 8, 940 + ny * 8); ctx.fill();
+      });
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     drawGround(ctx, t, off) {

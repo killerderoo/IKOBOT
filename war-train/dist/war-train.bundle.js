@@ -147,8 +147,20 @@ window.WT = window.WT || {};
       synth: true,          // procedural placeholder sounds when no file is configured
       files: {              // drop files in assets/sfx/ and list them here to replace the synth
         rumble: '', whistle: '', clank: '', cannon: '', reload: '', steam: '', sting: '',
+        explosion: '', jet: '', siren: '', chopper: '', minigun: '',
       },
     },
+
+    // SUB BOMB killstreaks: the biggest matching `min` wins. `extra` = seconds added to the pass so
+    // the strike can play out while the gifter's wagon is on screen.
+    killstreaks: [
+      { min: 5, kind: 'airstrike', label: 'PRECISION AIRSTRIKE', extra: 0.5 },
+      { min: 10, kind: 'chopper', label: 'CHOPPER GUNNER', extra: 1.4 },
+      { min: 25, kind: 'carpet', label: 'CARPET BOMBING', extra: 1.6 },
+      { min: 50, kind: 'nuke', label: 'TACTICAL NUKE', extra: 3.6 },
+    ],
+    warIntensity: 1,        // 0..1 ambient battlefield (distant explosions, flak, searchlights)
+    trainScale: 1.15,       // size of the train on screen
 
     labels: {
       gifter: 'SUB GIFTER',
@@ -170,8 +182,10 @@ window.WT = window.WT || {};
     demo: {
       gifters: [
         { username: 'GhostRecon_77', giftCount: 5, tier: '1000' },
-        { username: 'SgtKilljoy', giftCount: 20, tier: '1000' },
-        { username: 'xX_Nightfall_Xx', giftCount: 1, tier: '2000' },
+        { username: 'SgtKilljoy', giftCount: 25, tier: '1000' },
+        { username: 'xX_Nightfall_Xx', giftCount: 10, tier: '2000' },
+        { username: 'Warlord_Wim', giftCount: 50, tier: '1000' },
+        { username: 'PvtRyan', giftCount: 1, tier: '1000' },
       ],
       recruits: [
         { username: 'PvtPixel', type: 'sub' },
@@ -199,6 +213,7 @@ window.WT = window.WT || {};
     if (p.get('source')) o.source = p.get('source');
     if (p.get('sse')) o.sseUrl = p.get('sse');
     if (p.get('quality')) o.quality = p.get('quality');
+    if (p.get('war')) o.warIntensity = Math.max(0, Math.min(1, +p.get('war')));
     if (p.get('avatars')) o.avatarLookup = p.get('avatars');
     if (p.get('persist') === '0') o.persist = false;
     if (p.get('maxGifters')) o.maxGiftersPerRun = Math.max(1, +p.get('maxGifters') || 3);
@@ -247,6 +262,7 @@ window.WT = window.WT || {};
     // Hook names: rumble, whistle, clank, cannon, reload, steam, sting
     play(name, opts) {
       if (!this.enabled) return;
+      if (opts && opts.delay) { const o = Object.assign({}, opts, { delay: 0 }); setTimeout(() => this.play(name, o), opts.delay * 1000); return; }
       const file = this.cfg.files && this.cfg.files[name];
       if (file) return this._playFile(file, opts);
       if (this.cfg.synth) this._synth(name, opts || {});
@@ -332,6 +348,39 @@ window.WT = window.WT || {};
         n.connect(hp).connect(g).connect(out);
         this._env(g, t, 0.03, 0.25 * gain, 0.8);
         n.start(t);
+      } else if (name === 'explosion') {
+        const n = this._noise(2.5), lp = filt('lowpass', 600), g = ac.createGain();
+        n.connect(lp).connect(g).connect(out);
+        this._env(g, t, 0.01, 1.0 * gain, 2.2);
+        n.start(t);
+        const o1 = ac.createOscillator(), g2 = ac.createGain();
+        o1.frequency.setValueAtTime(70, t); o1.frequency.exponentialRampToValueAtTime(22, t + 1.4);
+        o1.connect(g2).connect(out);
+        this._env(g2, t, 0.01, 0.9 * gain, 1.5);
+        o1.start(t); o1.stop(t + 1.8);
+      } else if (name === 'jet') {
+        const n = this._noise(2.4), bp = filt('bandpass', 400), g = ac.createGain();
+        bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.9); bp.frequency.exponentialRampToValueAtTime(250, t + 2.2);
+        n.connect(bp).connect(g).connect(out);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7 * gain, t + 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+        n.start(t); n.stop(t + 2.4);
+      } else if (name === 'siren') {
+        const d = o.duration || 2.4, osc = ac.createOscillator(), g = ac.createGain();
+        osc.type = 'sawtooth';
+        for (let k = 0; k < d; k += 0.8) { osc.frequency.setValueAtTime(420, t + k); osc.frequency.linearRampToValueAtTime(880, t + k + 0.4); osc.frequency.linearRampToValueAtTime(420, t + k + 0.8); }
+        const lp = filt('lowpass', 1800);
+        osc.connect(lp).connect(g).connect(out);
+        g.gain.setValueAtTime(0.12 * gain, t); g.gain.setValueAtTime(0.12 * gain, t + d - 0.1); g.gain.linearRampToValueAtTime(0, t + d);
+        osc.start(t); osc.stop(t + d);
+      } else if (name === 'chopper' || name === 'minigun') {
+        const d = o.duration || 3, n = this._noise(d), f = filt(name === 'chopper' ? 'lowpass' : 'bandpass', name === 'chopper' ? 220 : 1400);
+        const g = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+        lfo.type = 'square'; lfo.frequency.value = name === 'chopper' ? 11 : 38;
+        lg.gain.value = 0.25 * gain;
+        g.gain.value = 0.3 * gain;
+        lfo.connect(lg).connect(g.gain);
+        n.connect(f).connect(g).connect(out);
+        n.start(t); n.stop(t + d); lfo.start(t); lfo.stop(t + d);
       } else if (name === 'sting') {
         [196, 247, 294, 392].forEach((f, i) => {
           const osc = ac.createOscillator(), g = ac.createGain(), lp = filt('lowpass', 2200);
@@ -396,6 +445,8 @@ window.WT = window.WT || {};
         red: radialSprite(255, 50, 30, 0.25),
         white: radialSprite(255, 240, 210, 0.2),
         gold: radialSprite(255, 200, 70, 0.25),
+        hot: radialSprite(255, 236, 170, 0.35),
+        soot: [smokeSprite(12, 11, 12, 8), smokeSprite(18, 15, 14, 9)],
       };
     }
 
@@ -430,7 +481,7 @@ window.WT = window.WT || {};
       o = o || {};
       const cnt = this.n(o.n || 4);
       for (let i = 0; i < cnt; i++) {
-        const set = o.kind === 'steam' ? this.sprites.steam : o.kind === 'warm' ? this.sprites.warm : this.sprites.smoke;
+        const set = o.kind === 'steam' ? this.sprites.steam : o.kind === 'warm' ? this.sprites.warm : o.kind === 'soot' ? this.sprites.soot : this.sprites.smoke;
         this.add({
           t: 'smoke', spr: set[(this.rnd() * set.length) | 0], layer: o.layer || 'back',
           x: x + this.r(-1, 1) * (o.spread || 10), y: y + this.r(-1, 1) * (o.spread || 10),
@@ -448,7 +499,7 @@ window.WT = window.WT || {};
       for (let i = 0; i < cnt; i++) {
         const a = (o.angle || -Math.PI / 2) + this.r(-1, 1) * (o.spread || Math.PI), sp = (o.speed || 500) * this.r(0.3, 1.1);
         this.add({
-          t: 'spark', x, y, vx: Math.cos(a) * sp + (o.vx || 0), vy: Math.sin(a) * sp, life: this.r(0.25, 0.8) * (o.life || 1),
+          t: 'spark', layer: o.layer || 'front', x, y, vx: Math.cos(a) * sp + (o.vx || 0), vy: Math.sin(a) * sp, life: this.r(0.25, 0.8) * (o.life || 1),
           g: o.gravity == null ? 900 : o.gravity, drag: 1.5, w: this.r(1.2, 2.6), color: o.color || (this.rnd() < 0.7 ? '255,170,60' : '255,240,200'),
         });
       }
@@ -515,7 +566,81 @@ window.WT = window.WT || {};
       this.sparks(x, y, { n: 26 * scale, angle, spread: 0.6, speed: 900 * scale, gravity: 500 });
       this.smoke(x, y, { n: 6 * scale, angle, vx: Math.cos(angle) * 160, vy: Math.sin(angle) * 160 - 30, size: 70 * scale, alpha: 0.75, layer: 'front', life: 2 });
       this.smoke(x, y, { n: 3, kind: 'warm', vx: Math.cos(angle) * 90, vy: -40, size: 60 * scale, alpha: 0.5, layer: 'front' });
-      this.ring(x, y, 90 * scale, { life: 0.3, w: 4 });
+      this.ring(x, y, 70 * scale, { life: 0.22, w: 2, color: '255,170,90' });
+    }
+
+    // ---- war effects ----------------------------------------------------
+    // Rising flames: white-hot core → orange → red, fading into soot.
+    fire(x, y, o) {
+      o = o || {};
+      const cnt = this.n(o.n || 3);
+      for (let i = 0; i < cnt; i++) {
+        this.add({
+          t: 'fire', layer: o.layer || 'front', x: x + this.r(-1, 1) * (o.spread || 8), y: y + this.r(-1, 1) * (o.spread || 8) * 0.5,
+          vx: (o.vx || 0) + this.r(-1, 1) * (o.jitter || 25), vy: (o.vy || -90) + this.r(-1, 1) * (o.jitter || 25),
+          size: (o.size || 26) * this.r(0.7, 1.3), life: (o.life || 0.8) * this.r(0.7, 1.2), g: o.g == null ? -120 : o.g, drag: o.drag || 1.2,
+          rot: this.r(0, 6.28),
+        });
+      }
+    }
+
+    debris(x, y, o) {
+      o = o || {};
+      const cnt = this.n(o.n || 8);
+      for (let i = 0; i < cnt; i++) {
+        const a = (o.angle == null ? -Math.PI / 2 : o.angle) + this.r(-1, 1) * (o.spread || 1.2), sp = (o.speed || 700) * this.r(0.35, 1);
+        this.add({
+          t: 'debris', layer: o.layer || 'front', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 1300, drag: 0.3,
+          life: this.r(0.9, 1.8), w: this.r(4, 12) * (o.scale || 1), h: this.r(3, 7) * (o.scale || 1), rot: this.r(0, 6.28), vr: this.r(-14, 14),
+          burning: this.rnd() < (o.burning == null ? 0.5 : o.burning),
+        });
+      }
+    }
+
+    // Missile with a smoke trail; explodes on arrival.
+    missile(x, y, tx, ty, o) {
+      o = o || {};
+      const life = o.life || 0.7;
+      this.add({ t: 'missile', layer: o.layer || 'front', x, y, vx: (tx - x) / life, vy: (ty - y) / life, life, drag: 0, end: o.end || 'explode', scale: o.scale || 1, endLayer: o.endLayer || 'back' });
+    }
+
+    // Airborne fireball.
+    explosion(x, y, s, o) {
+      o = o || {};
+      s = s || 1;
+      const layer = o.layer || 'front';
+      this.flash(x, y, 420 * s, 0, { life: 0.12, color: 'white', layer });
+      this.glow(x, y, 700 * s, { life: 0.5, alpha: 0.9, layer });
+      this.ring(x, y, 220 * s, { life: 0.4, w: 5 });
+      for (let i = 0; i < this.n(26 * s); i++) {
+        const a = this.r(0, 6.283), sp = this.r(60, 340) * s;
+        this.add({ t: 'fire', layer, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, size: this.r(30, 60) * s, life: this.r(0.5, 1.1), g: -160, drag: 2.6, rot: this.r(0, 6.28) });
+      }
+      this.smoke(x, y, { n: 10 * s, size: 90 * s, spread: 50 * s, jitter: 90 * s, vy: -50, life: 3, alpha: 0.85, layer, grow: 2.2 });
+      this.debris(x, y, { n: 10 * s, speed: 800 * s, spread: Math.PI, layer: 'front', scale: Math.min(2, s) });
+      this.sparks(x, y, { n: 30 * s, speed: 900 * s, gravity: 700, life: 1.2 });
+      if (o.shake !== false) this.shake(8 * s, 0.3);
+    }
+
+    // Ground impact: fire column + dust skirt + debris arcs.
+    groundBlast(x, y, s, o) {
+      o = o || {};
+      s = s || 1;
+      const layer = o.layer || 'back';
+      this.flash(x, y - 40 * s, 460 * s, 0, { life: 0.12, color: 'white', layer });
+      this.glow(x, y - 60 * s, 800 * s, { life: 0.6, alpha: 0.85, layer });
+      for (let i = 0; i < this.n(30 * s); i++) {
+        const a = -Math.PI / 2 + this.r(-0.55, 0.55), sp = this.r(150, 620) * s;
+        this.add({ t: 'fire', layer, x: x + this.r(-20, 20) * s, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: this.r(34, 70) * s, life: this.r(0.6, 1.2), g: 80, drag: 1.8, rot: this.r(0, 6.28) });
+      }
+      // dust skirt rolling sideways along the ground
+      for (const dir of [-1, 1]) this.smoke(x, y - 10, { n: 5 * s, kind: 'warm', vx: dir * 260 * s, vy: -25, jitter: 40, size: 70 * s, life: 1.8, alpha: 0.6, layer, grow: 2 });
+      this.smoke(x, y - 120 * s, { n: 9 * s, kind: 'soot', size: 110 * s, spread: 60 * s, vy: -90, jitter: 50, life: 3.4, alpha: 0.9, layer, grow: 2.4 });
+      const near = o.near ? 'front' : layer; // impacts behind the train keep their debris behind it
+      this.debris(x, y - 10, { n: 12 * s, speed: 900 * s, spread: 0.9, layer: near, scale: Math.min(2, s) });
+      this.sparks(x, y - 20, { n: 24 * s, speed: 800 * s, spread: 0.9, gravity: 900, life: 1.3, layer: near });
+      this.embers(x, y - 80 * s, { n: 14 * s, spread: 60 * s, lift: 1.5, layer });
+      if (o.shake !== false) this.shake(9 * s, 0.35);
     }
 
     // ---- simulation -----------------------------------------------------
@@ -526,7 +651,7 @@ window.WT = window.WT || {};
         const q = cur[i];
         q.age += dt;
         if (q.age >= q.life) {
-          if (q.t === 'blast' && q.burst) bursts.push(q);
+          if ((q.t === 'blast' && q.burst) || q.end) bursts.push(q);
           continue;
         }
         if (q.vx !== undefined) {
@@ -535,6 +660,15 @@ window.WT = window.WT || {};
           q.vy += (q.g || 0) * dt;
           q.x += q.vx * dt; q.y += q.vy * dt;
         }
+        if (q.t === 'missile') {
+          // several puffs per frame along the path so the trail reads as one continuous plume
+          for (let k = 0; k < 4; k++) {
+            const f = k / 4;
+            this.add({ t: 'smoke', spr: this.sprites.steam[(this.rnd() * 2) | 0], layer: q.layer, x: q.x - q.vx * dt * f, y: q.y - q.vy * dt * f, vx: this.r(-8, 8), vy: this.r(-8, 3), size: 6 * q.scale, grow: 3, life: 1.0, alpha: 0.22, drag: 1, rot: this.r(0, 6), vr: 0 });
+          }
+        } else if (q.t === 'debris' && q.burning && this.rnd() < 0.6) {
+          this.add({ t: 'ember', x: q.x, y: q.y, vx: 0, vy: 0, life: 0.4, g: -20, drag: 1, size: 3, ph: 0, layer: q.layer });
+        }
         if (q.t === 'blast' && this.rnd() < 0.8) {
           this.add({ t: 'ember', x: q.x, y: q.y, vx: this.r(-40, 40), vy: this.r(-40, 40), life: this.r(0.3, 0.7), g: 0, drag: 1, size: this.r(2, 4), ph: 0, layer: 'front' });
         }
@@ -542,7 +676,11 @@ window.WT = window.WT || {};
         keep.push(q);
       }
       this.p = keep.concat(this.p);
-      for (const q of bursts) this.burst(q.x, q.y, q.scale, q.gold);
+      for (const q of bursts) {
+        if (q.end === 'explode') this.explosion(q.x, q.y, q.scale, { layer: q.endLayer });
+        else if (q.end === 'ground') this.groundBlast(q.x, q.y, q.scale, { layer: q.endLayer });
+        else this.burst(q.x, q.y, q.scale, q.gold);
+      }
       if (this.p.length > this.max) this.p.splice(0, this.p.length - this.max);
       if (this.shakeT > 0) this.shakeT -= dt;
       else this.shakeAmt *= Math.exp(-10 * dt);
@@ -631,6 +769,54 @@ window.WT = window.WT || {};
             ctx.arc(q.x, q.y, q.maxR * U.easeOutCubic(k), 0, Math.PI * 2);
             ctx.stroke();
             ctx.globalCompositeOperation = 'source-over';
+            break;
+          }
+          case 'fire': {
+            ctx.globalCompositeOperation = 'lighter';
+            const s = q.size * (0.6 + 0.9 * k);
+            const spr = k < 0.18 ? this.sprites.hot : k < 0.55 ? this.sprites.orange : this.sprites.red;
+            ctx.globalAlpha = (k < 0.1 ? k / 0.1 : 1 - (k - 0.1) / 0.9) * 0.9;
+            ctx.drawImage(spr, q.x - s, q.y - s * 1.2, s * 2, s * 2.4);
+            ctx.globalCompositeOperation = 'source-over';
+            if (k > 0.55) { // charred tip turning into soot
+              ctx.globalAlpha = (k - 0.55) * 0.9;
+              ctx.drawImage(this.sprites.soot[0], q.x - s, q.y - s, s * 2, s * 2);
+            }
+            break;
+          }
+          case 'debris': {
+            ctx.globalAlpha = 1 - Math.max(0, k - 0.7) / 0.3;
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.rotate(q.rot);
+            ctx.fillStyle = q.burning ? '#2a1a10' : '#15171a';
+            ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h);
+            if (q.burning) { ctx.fillStyle = 'rgba(255,120,30,0.9)'; ctx.fillRect(-q.w / 2, -q.h / 2, q.w * 0.4, q.h); }
+            ctx.restore();
+            break;
+          }
+          case 'missile': {
+            const sp = Math.hypot(q.vx, q.vy) || 1, ux = q.vx / sp, uy = q.vy / sp, L = 26 * q.scale;
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#2b2f34'; ctx.lineWidth = 5 * q.scale; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - ux * L, q.y - uy * L); ctx.stroke();
+            ctx.lineCap = 'butt';
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.drawImage(this.sprites.hot, q.x - ux * L - 14 * q.scale, q.y - uy * L - 14 * q.scale, 28 * q.scale, 28 * q.scale);
+            ctx.drawImage(this.sprites.orange, q.x - ux * L - 40 * q.scale, q.y - uy * L - 40 * q.scale, 80 * q.scale, 80 * q.scale);
+            ctx.globalCompositeOperation = 'source-over';
+            break;
+          }
+          case 'bomb': {
+            ctx.globalAlpha = 1;
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.rotate(Math.atan2(q.vy, q.vx));
+            ctx.fillStyle = '#1d2024';
+            U.roundRect(ctx, -14, -5, 26, 10, 5); ctx.fill();
+            ctx.fillStyle = '#3a3f45'; ctx.fillRect(-18, -6, 5, 12);
+            ctx.fillStyle = '#c0261a'; ctx.fillRect(4, -5, 2, 10);
+            ctx.restore();
             break;
           }
           case 'blast': {
@@ -1101,7 +1287,538 @@ window.WT = window.WT || {};
     ctx.globalCompositeOperation = 'source-over';
   };
 
+  // Weathering pass, painted on top of a finished wagon sprite (only where armor already exists):
+  // fire-lit top, ambient occlusion, grime, rust streaks, scratches, grain and bullet holes.
+  P.weather = (x, w, seed, o) => {
+    o = o || {};
+    const r = U.rng(seed), top = 480, bot = 905;
+    x.save();
+    x.globalCompositeOperation = 'source-atop';
+    let g = x.createLinearGradient(0, 560, 0, 900);
+    g.addColorStop(0, 'rgba(255,140,60,0.13)');
+    g.addColorStop(0.45, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.38)');
+    x.fillStyle = g; x.fillRect(-60, top, w + 120, bot - top);
+    g = x.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0.28)'); g.addColorStop(0.45, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.16)');
+    x.fillStyle = g; x.fillRect(-60, top, w + 120, bot - top);
+    for (let i = 0; i < w / 14; i++) {
+      const cx = r() * w, cy = 600 + r() * 280, rr = 20 + r() * 50;
+      const rg = x.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      rg.addColorStop(0, `rgba(${r() < 0.3 ? '60,35,18' : '6,5,4'},${0.12 + r() * 0.16})`); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = rg; x.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+    }
+    for (let i = 0; i < w / 20; i++) {
+      const sx = r() * w, sy = 620 + r() * 230, len = 18 + r() * 70;
+      const sg = x.createLinearGradient(0, sy, 0, sy + len);
+      sg.addColorStop(0, `rgba(140,66,24,${0.35 + r() * 0.25})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
+      x.fillStyle = sg; x.fillRect(sx, sy, 1.2 + r() * 3, len);
+    }
+    x.strokeStyle = 'rgba(210,214,220,0.16)';
+    x.lineWidth = 0.8;
+    for (let i = 0; i < w / 7; i++) {
+      const sx = r() * w, sy = 620 + r() * 240, a = (r() - 0.5) * 0.8, l = 4 + r() * 16;
+      x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + Math.cos(a) * l, sy + Math.sin(a) * l); x.stroke();
+    }
+    for (let i = 0; i < w * 6; i++) {
+      x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.09)';
+      x.fillRect(r() * w, top + r() * (bot - top), 1.5, 1.5);
+    }
+    for (let i = 0; i < (o.holes || 0); i++) {
+      const cx = 30 + r() * (w - 60), cy = 700 + r() * 150, hr = 2.5 + r() * 3;
+      x.strokeStyle = 'rgba(0,0,0,0.6)'; x.lineWidth = 1;
+      for (let k = 0; k < 5; k++) { const a = r() * 6.283; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * hr * 3, cy + Math.sin(a) * hr * 3); x.stroke(); }
+      x.fillStyle = 'rgba(150,150,150,0.18)'; x.beginPath(); x.arc(cx - 0.6, cy - 0.6, hr + 1.2, 0, 6.283); x.fill();
+      x.fillStyle = '#050505'; x.beginPath(); x.arc(cx, cy, hr * 0.8, 0, 6.283); x.fill();
+      if (r() < 0.15) { x.fillStyle = 'rgba(255,110,30,0.35)'; x.beginPath(); x.arc(cx, cy, hr * 0.45, 0, 6.283); x.fill(); }
+    }
+    x.restore();
+  };
+
   WT.P = P;
+})(window.WT);
+
+/* ---- js/fx/strikes.js ---- */
+/* War Train — SUB BOMB killstreaks. Big gifts call in a cinematic strike while the gifter's cannon
+   wagon is on screen. Coordinates are design pixels in "train space" (see Run.TRAIN_SCALE).
+     REINFORCEMENTS (1+)  card only
+     PRECISION AIRSTRIKE (5+)  jet formation fires missiles into the horizon
+     CHOPPER GUNNER (10+)      attack helicopter strafes with minigun + rockets
+     CARPET BOMBING (25+)      heavy bomber lays a wall of explosions
+     TACTICAL NUKE (50+)       countdown, white-out, shockwave and mushroom cloud */
+window.WT = window.WT || {};
+(function (WT) {
+  'use strict';
+  const U = WT.U, P = WT.P;
+  const ACCENT = '#ff7a1a', GOLD = '#ffc840', RED = '#ff2a1a';
+  const GROUND = 936; // where ground impacts happen (just behind the rail)
+
+  WT.killstreakFor = function (count) {
+    const list = (WT.cfg.killstreaks || []).slice().sort((a, b) => b.min - a.min);
+    for (const k of list) if (count >= k.min) return k;
+    return { min: 1, kind: 'supply', label: 'REINFORCEMENTS', extra: 0 };
+  };
+
+  // ------------------------------------------------------------ aircraft art --
+  function drawJet(ctx, x, y, s, t) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    // afterburner
+    const ab = 0.8 + 0.2 * Math.sin(t * 60);
+    P.glowSprite(ctx, WT.sprites.orange, -92, 1, 90 * ab, 0.9);
+    P.glowSprite(ctx, WT.sprites.hot, -88, 1, 36 * ab, 1);
+    ctx.globalCompositeOperation = 'lighter';
+    const cone = ctx.createLinearGradient(-86, 0, -150, 0);
+    cone.addColorStop(0, 'rgba(255,190,110,0.9)'); cone.addColorStop(1, 'rgba(255,90,30,0)');
+    ctx.fillStyle = cone;
+    ctx.beginPath(); ctx.moveTo(-84, -4); ctx.lineTo(-150 - 10 * ab, 1); ctx.lineTo(-84, 6); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // far wing (darker)
+    ctx.fillStyle = '#16191c';
+    ctx.beginPath(); ctx.moveTo(14, -4); ctx.lineTo(-22, -4); ctx.lineTo(-44, -20); ctx.lineTo(-30, -20); ctx.fill();
+    // fuselage
+    const g = ctx.createLinearGradient(0, -10, 0, 10);
+    g.addColorStop(0, '#6a7079'); g.addColorStop(0.45, '#33383e'); g.addColorStop(1, '#121417');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(100, 2); ctx.lineTo(62, -7); ctx.lineTo(-40, -9); ctx.lineTo(-80, -5); ctx.lineTo(-84, 5); ctx.lineTo(-40, 9); ctx.lineTo(62, 8); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1; ctx.stroke();
+    // intake + canopy
+    ctx.fillStyle = '#0b0c0d'; ctx.fillRect(8, 1, 26, 6);
+    const cg = ctx.createLinearGradient(30, -14, 60, -6);
+    cg.addColorStop(0, 'rgba(255,170,80,0.85)'); cg.addColorStop(1, 'rgba(40,30,30,0.9)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.ellipse(46, -8, 18, 5, -0.06, Math.PI, 0); ctx.fill();
+    // near wing, tail, stabiliser
+    ctx.fillStyle = '#2a2e33';
+    ctx.beginPath(); ctx.moveTo(18, 3); ctx.lineTo(-28, 3); ctx.lineTo(-58, 22); ctx.lineTo(-38, 22); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-50, -8); ctx.lineTo(-76, -36); ctx.lineTo(-88, -36); ctx.lineTo(-80, -6); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-60, 5); ctx.lineTo(-86, 13); ctx.lineTo(-94, 13); ctx.lineTo(-82, 3); ctx.closePath(); ctx.fill();
+    // missiles under the wing + nav light
+    ctx.fillStyle = '#4b5057'; ctx.fillRect(-26, 23, 30, 3);
+    if (Math.sin(t * 14) > 0.3) P.glowSprite(ctx, WT.sprites.red, -56, 22, 26, 1);
+    ctx.restore();
+  }
+
+  function drawHeli(ctx, x, y, s, t, tilt) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt || 0);
+    ctx.scale(s, s);
+    // tail boom + fin + tail rotor
+    ctx.fillStyle = '#1e2226';
+    ctx.beginPath(); ctx.moveTo(-30, -10); ctx.lineTo(-150, -14); ctx.lineTo(-150, -6); ctx.lineTo(-30, 8); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-138, -12); ctx.lineTo(-160, -44); ctx.lineTo(-168, -44); ctx.lineTo(-156, -8); ctx.fill();
+    ctx.strokeStyle = 'rgba(160,165,170,0.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(-160, -26, 16, 0, 6.283); ctx.stroke();
+    const ta = t * 50;
+    ctx.strokeStyle = '#555b62'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-160 + Math.cos(ta) * 16, -26 + Math.sin(ta) * 16); ctx.lineTo(-160 - Math.cos(ta) * 16, -26 - Math.sin(ta) * 16); ctx.stroke();
+    // body
+    const g = ctx.createLinearGradient(0, -34, 0, 30);
+    g.addColorStop(0, '#5c636b'); g.addColorStop(0.4, '#2c3136'); g.addColorStop(1, '#0f1113');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(70, 10); ctx.quadraticCurveTo(76, -18, 40, -28); ctx.lineTo(-20, -32); ctx.quadraticCurveTo(-46, -24, -46, 0);
+    ctx.quadraticCurveTo(-44, 22, -10, 26); ctx.lineTo(50, 24); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // canopy glass with warm reflection
+    const cg = ctx.createLinearGradient(20, -26, 66, 4);
+    cg.addColorStop(0, 'rgba(255,170,80,0.75)'); cg.addColorStop(1, 'rgba(30,25,25,0.95)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.moveTo(66, 4); ctx.quadraticCurveTo(68, -16, 38, -24); ctx.lineTo(24, -22); ctx.lineTo(28, 2); ctx.closePath(); ctx.fill();
+    // stub wing + rocket pod + minigun
+    ctx.fillStyle = '#16191c'; ctx.fillRect(-18, 6, 40, 6);
+    ctx.fillStyle = '#2a2e33'; U.roundRect(ctx, -14, 12, 34, 12, 5); ctx.fill();
+    ctx.fillStyle = '#ff3b1f'; ctx.fillRect(18, 15, 3, 6);
+    ctx.fillStyle = '#0c0d0f'; ctx.fillRect(60, 20, 26, 5);
+    // skids
+    ctx.strokeStyle = '#121416'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-30, 26); ctx.lineTo(-30, 36); ctx.moveTo(30, 24); ctx.lineTo(30, 36); ctx.moveTo(-50, 36); ctx.lineTo(50, 36); ctx.stroke();
+    // rotor mast + blurred main rotor
+    ctx.fillStyle = '#121416'; ctx.fillRect(-6, -44, 12, 14);
+    ctx.fillStyle = 'rgba(120,125,130,0.18)';
+    ctx.beginPath(); ctx.ellipse(0, -44, 150, 9, 0, 0, 6.283); ctx.fill();
+    const ra = t * 32;
+    ctx.strokeStyle = 'rgba(40,44,48,0.85)'; ctx.lineWidth = 4;
+    for (let i = 0; i < 2; i++) {
+      const c = Math.cos(ra + i * Math.PI / 2) * 150;
+      ctx.beginPath(); ctx.moveTo(-c, -44); ctx.lineTo(c, -44); ctx.stroke();
+    }
+    if (Math.sin(t * 12) > 0.4) P.glowSprite(ctx, WT.sprites.red, -150, -10, 24, 1);
+    ctx.restore();
+  }
+
+  function drawBomber(ctx, x, y, s, t, bayOpen) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    for (const ex of [-10, 60]) {
+      P.glowSprite(ctx, WT.sprites.orange, ex - 50, 14, 50, 0.5 + 0.2 * Math.sin(t * 40 + ex));
+    }
+    const g = ctx.createLinearGradient(0, -18, 0, 18);
+    g.addColorStop(0, '#5a6068'); g.addColorStop(0.5, '#2a2e33'); g.addColorStop(1, '#101214');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(190, 4); ctx.quadraticCurveTo(186, -14, 150, -16); ctx.lineTo(-170, -14); ctx.lineTo(-210, -8); ctx.lineTo(-212, 6); ctx.lineTo(-170, 14); ctx.lineTo(150, 16); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // tail fin
+    ctx.fillStyle = '#25292e';
+    ctx.beginPath(); ctx.moveTo(-150, -14); ctx.lineTo(-196, -78); ctx.lineTo(-218, -78); ctx.lineTo(-200, -8); ctx.closePath(); ctx.fill();
+    // wing + engine pods
+    ctx.fillStyle = '#1b1e22';
+    ctx.beginPath(); ctx.moveTo(70, -6); ctx.lineTo(-40, -6); ctx.lineTo(-120, 12); ctx.lineTo(-60, 12); ctx.closePath(); ctx.fill();
+    for (const ex of [-10, 60]) { ctx.fillStyle = '#2d3237'; U.roundRect(ctx, ex - 46, 8, 46, 12, 6); ctx.fill(); ctx.fillStyle = '#0a0a0b'; ctx.fillRect(ex - 2, 9, 3, 10); }
+    // cockpit windows
+    ctx.fillStyle = 'rgba(255,160,70,0.8)'; ctx.fillRect(150, -12, 22, 5);
+    // bomb bay
+    if (bayOpen) { ctx.fillStyle = '#050505'; ctx.fillRect(-60, 12, 110, 6); P.glowSprite(ctx, WT.sprites.red, 0, 18, 60, 0.4); }
+    ctx.restore();
+  }
+
+  // Continuous vapour trail behind an aircraft: thin and bright at the engine, wide and faint behind.
+  function drawContrail(ctx, x, y, len, alpha) {
+    if (alpha <= 0 || x < -200) return;
+    const x0 = x - len, g = ctx.createLinearGradient(x, 0, x0, 0);
+    g.addColorStop(0, `rgba(225,228,232,${0.55 * alpha})`);
+    g.addColorStop(0.4, `rgba(200,204,210,${0.22 * alpha})`);
+    g.addColorStop(1, 'rgba(200,204,210,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 1.5); ctx.lineTo(x0, y - 14); ctx.lineTo(x0, y + 14); ctx.lineTo(x, y + 1.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawTrefoil(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, r * 0.18, 0, 6.283); ctx.fill();
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + i * (2 * Math.PI / 3);
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a - 0.5) * r * 0.28, y + Math.sin(a - 0.5) * r * 0.28);
+      ctx.arc(x, y, r, a - 0.5, a + 0.5);
+      ctx.arc(x, y, r * 0.28, a + 0.5, a - 0.5, true);
+      ctx.fill();
+    }
+  }
+
+  function drawIcon(ctx, kind, x, y, t) {
+    if (kind === 'airstrike') drawJet(ctx, x + 6, y + 4, 0.48, t);
+    else if (kind === 'chopper') drawHeli(ctx, x + 14, y + 12, 0.32, t, 0);
+    else if (kind === 'carpet') {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(0.6);
+      ctx.fillStyle = '#d9d3c4'; U.roundRect(ctx, -12, -30, 24, 50, 12); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-14, 18); ctx.lineTo(14, 18); ctx.lineTo(18, 32); ctx.lineTo(-18, 32); ctx.fill();
+      ctx.fillStyle = RED; ctx.fillRect(-12, -6, 24, 5);
+      ctx.restore();
+    } else if (kind === 'nuke') {
+      ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(x, y, 38, 0, 6.283); ctx.fill();
+      drawTrefoil(ctx, x, y, 32, '#111');
+    } else {
+      // supply crate on a parachute
+      ctx.strokeStyle = '#cfc8b8'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x - 24, y - 16); ctx.lineTo(x - 10, y + 8); ctx.moveTo(x + 24, y - 16); ctx.lineTo(x + 10, y + 8); ctx.stroke();
+      ctx.fillStyle = ACCENT; ctx.beginPath(); ctx.arc(x, y - 16, 26, Math.PI, 0); ctx.fill();
+      P.crate(ctx, x - 14, y + 6, 28, 22, '', 'olive');
+    }
+  }
+
+  // ------------------------------------------------------------- strikes --
+  class Strike {
+    constructor(mgr, g, t0, ks) {
+      this.mgr = mgr; this.fx = mgr.fx; this.g = g; this.t0 = t0; this.ks = ks;
+      this.dur = 3; this.fired = {}; this.acc = {};
+    }
+    once(key, cond, fn) { if (cond && !this.fired[key]) { this.fired[key] = true; fn(); } }
+    every(key, rate, dt, fn) { this.acc[key] = (this.acc[key] || 0) + rate * dt; while (this.acc[key] >= 1) { this.acc[key] -= 1; fn(); } }
+    get done() { return false; }
+    update() {}
+    drawBack() {}
+    drawHud() {}
+  }
+
+  class Supply extends Strike {
+    constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 2.6; }
+  }
+
+  class Airstrike extends Strike {
+    constructor(m, g, t0, ks) {
+      super(m, g, t0, ks);
+      this.dur = 3.4;
+      this.jets = [{ y: 290, dx: 0 }, { y: 330, dx: -170 }, { y: 360, dx: -330 }];
+    }
+    jetX(j, t) { return -260 + j.dx + (t - this.t0 - 0.25) * 2500; }
+    update(t, dt) {
+      const fx = this.fx, lt = t - this.t0;
+      this.once('snd', lt > 0.1, () => this.mgr.sound.play('jet'));
+      this.jets.forEach((j, i) => {
+        const x = this.jetX(j, t);
+        [380 + i * 140, 820 + i * 160].forEach((lx, k) => {
+          this.once(`m${i}${k}`, x >= lx, () => {
+            fx.missile(x + 10, j.y + 24, lx + 420 + fx.r(-60, 60), GROUND, { life: 0.5, end: 'ground', scale: 0.95, endLayer: 'back' });
+            this.mgr.sound.play('clank', { gain: 0.5 });
+          });
+        });
+      });
+      this.once('boom', lt > 0.9, () => this.mgr.sound.play('explosion'));
+    }
+    drawBack(ctx, t) {
+      const fade = 1 - U.inv(this.dur - 1.2, this.dur, t - this.t0);
+      for (const j of this.jets) {
+        const x = this.jetX(j, t);
+        drawContrail(ctx, Math.min(x, 2400) - 100, j.y + 2, 1700, fade);
+        if (x > -300 && x < 2300) drawJet(ctx, x, j.y, 1.2, t);
+      }
+    }
+  }
+
+  class Chopper extends Strike {
+    constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 4.2; }
+    pos(t) {
+      const lt = t - this.t0;
+      if (lt < 0.9) { const k = U.easeOutCubic(lt / 0.9); return { x: U.lerp(2150, 1500, k), y: U.lerp(330, 390, k), tilt: 0.12 * (1 - k) - 0.1 }; }
+      if (lt < 3.2) { const k = (lt - 0.9) / 2.3; return { x: U.lerp(1500, 1120, k), y: 390 + Math.sin(lt * 3) * 8, tilt: -0.14 }; }
+      const k = U.easeInCubic(Math.min(1, (lt - 3.2) / 1.0));
+      return { x: U.lerp(1120, 2250, k), y: U.lerp(390, 230, k), tilt: 0.05 + 0.15 * k };
+    }
+    muzzle(p) { return { x: p.x + Math.cos(p.tilt) * 92 - Math.sin(p.tilt) * 30, y: p.y + Math.sin(p.tilt) * 92 + Math.cos(p.tilt) * 30 }; }
+    update(t, dt) {
+      const fx = this.fx, lt = t - this.t0, p = this.pos(t);
+      this.once('snd', lt > 0, () => this.mgr.sound.play('chopper', { duration: this.dur }));
+      if (lt > 1.0 && lt < 3.1) {
+        this.once('gun', true, () => this.mgr.sound.play('minigun', { duration: 2.1 }));
+        const tx = U.lerp(1350, 520, (lt - 1.0) / 2.1);
+        this.every('mg', 26, dt, () => {
+          const m = this.muzzle(p), ax = tx + fx.r(-40, 40) - m.x, ay = GROUND - m.y;
+          fx.tracer(m.x, m.y, Math.atan2(ay, ax), { speed: 2800, len: 120, life: Math.hypot(ax, ay) / 2800, color: '255,200,110' });
+          fx.flash(m.x, m.y, 40, Math.atan2(ay, ax), { life: 0.04 });
+        });
+        this.every('hit', 9, dt, () => {
+          const x = tx + fx.r(-50, 50);
+          fx.sparks(x, GROUND - 6, { n: 8, angle: -1.9, spread: 0.7, speed: 420 });
+          fx.smoke(x, GROUND - 10, { n: 1, kind: 'warm', size: 40, alpha: 0.5, vy: -40, life: 1.2 });
+          fx.flash(x, GROUND - 10, 70, 0, { life: 0.06, layer: 'back' });
+        });
+      }
+      [1.7, 2.4].forEach((rt, i) => this.once('r' + i, lt >= rt, () => {
+        fx.missile(p.x + 10, p.y + 24, U.lerp(1250, 700, i) + fx.r(-60, 60), GROUND, { life: 0.45, end: 'ground', scale: 1.1, endLayer: 'back' });
+        this.mgr.sound.play('explosion', { gain: 0.8 });
+      }));
+    }
+    drawBack(ctx, t) {
+      const p = this.pos(t), lt = t - this.t0;
+      // searchlight sweeping the ground
+      const sa = U.envelope(lt, 0.5, 3.4, 0.3, 0.3);
+      if (sa > 0) {
+        const m = this.muzzle(p), gx = U.lerp(1300, 600, U.clamp((lt - 0.6) / 2.6, 0, 1));
+        ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createLinearGradient(m.x, m.y, gx, GROUND);
+        g.addColorStop(0, `rgba(255,230,190,${0.32 * sa})`); g.addColorStop(1, 'rgba(255,200,140,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(m.x - 6, m.y); ctx.lineTo(gx - 120, GROUND); ctx.lineTo(gx + 120, GROUND); ctx.lineTo(m.x + 6, m.y); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      drawHeli(ctx, p.x, p.y, 1.25, t, p.tilt);
+    }
+  }
+
+  class CarpetBomb extends Strike {
+    constructor(m, g, t0, ks) { super(m, g, t0, ks); this.dur = 4.4; this.y = 300; this.speed = 820; this.nextDrop = 140; }
+    bx(t) { return -420 + (t - this.t0) * this.speed; }
+    update(t, dt) {
+      const fx = this.fx, x = this.bx(t);
+      this.once('snd', t - this.t0 > 0.1, () => this.mgr.sound.play('jet', { gain: 0.7 }));
+      while (x >= this.nextDrop && this.nextDrop < 1820) {
+        const fall = Math.sqrt((2 * (GROUND - this.y - 20)) / 900);
+        fx.add({ t: 'bomb', layer: 'back', x: this.nextDrop, y: this.y + 20, vx: this.speed * 0.85, vy: 0, g: 900, drag: 0, life: fall, end: 'ground', scale: 1.15, endLayer: 'back' });
+        this.nextDrop += 105;
+        if (this.nextDrop % 315 < 105) this.mgr.sound.play('explosion', { gain: 0.6, delay: fall });
+      }
+    }
+    drawBack(ctx, t) {
+      const x = this.bx(t), fade = 1 - U.inv(this.dur - 1, this.dur, t - this.t0);
+      for (const ex of [-60, 10]) drawContrail(ctx, Math.min(x, 2500) + (ex - 50) * 1.3, this.y + 20, 1400, fade * 0.8);
+      if (x > -500 && x < 2400) drawBomber(ctx, x, this.y, 1.3, t, x > 80 && x < 1840);
+    }
+  }
+
+  class Nuke extends Strike {
+    constructor(m, g, t0, ks) {
+      super(m, g, t0, ks);
+      this.dur = 6.6; this.X = 1380; this.det = 2.4;
+    }
+    update(t, dt) {
+      const fx = this.fx, lt = t - this.t0, d = lt - this.det;
+      this.once('siren', lt >= 0, () => this.mgr.sound.play('siren', { duration: 2.4 }));
+      this.once('missile', lt >= 1.85, () => fx.add({ t: 'missile', layer: 'back', x: this.X + 160, y: -60, vx: -160 / 0.55, vy: (GROUND + 60) / 0.55, life: 0.55, drag: 0, scale: 1.6 }));
+      this.once('det', d >= 0, () => {
+        fx.groundBlast(this.X, GROUND, 2.4, { layer: 'back' });
+        fx.explosion(this.X, GROUND - 120, 2, { layer: 'back' });
+        fx.shake(30, 1.4);
+        this.mgr.sound.play('explosion', { gain: 2 });
+        this.mgr.sound.play('rumble', { duration: 4, gain: 1.6 });
+      });
+      if (d > 0 && d < 3.8) {
+        const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, 380, rise);
+        const rx = U.lerp(90, 250, rise), ry = rx * 0.42;
+        // stem
+        this.every('stem', 50 * fx.mult, dt, () => {
+          const y = fx.r(capY, GROUND);
+          fx.fire(this.X + fx.r(-28, 28) * (1 + (GROUND - y) / 900), y, { n: 1, size: 40, vy: -120, life: 0.9, layer: 'back' });
+          if (fx.rnd() < 0.5) fx.smoke(this.X + fx.r(-40, 40), y, { n: 1, kind: 'warm', size: 60, vy: -80, jitter: 20, life: 2.2, alpha: 0.5, layer: 'back' });
+        });
+        // rolling cap
+        this.every('cap', 70 * fx.mult, dt, () => {
+          const a = fx.r(0, 6.283), px = this.X + Math.cos(a) * rx, py = capY + Math.sin(a) * ry;
+          const roll = Math.sin(a) < 0 ? 1 : -1; // top rolls outward, bottom rolls inward
+          fx.smoke(px, py, { n: 1, kind: fx.rnd() < 0.6 ? 'soot' : 'warm', size: fx.r(90, 170), vx: Math.cos(a) * 60 * roll, vy: -30, jitter: 15, life: 2.8, alpha: 1, layer: 'back', grow: 1.5 });
+          if (fx.rnd() < 0.35) fx.fire(this.X + Math.cos(a) * rx * 0.5, capY + Math.abs(Math.sin(a)) * ry * 0.5, { n: 1, size: 60, vy: -10, life: 0.8, layer: 'back', g: 0 });
+        });
+        // dust wall rolling out along the ground
+        if (d < 1.6) this.every('dust', 40 * fx.mult, dt, () => {
+          const dir = fx.rnd() < 0.5 ? -1 : 1, r = d * 1100;
+          fx.smoke(this.X + dir * r, GROUND - fx.r(0, 40), { n: 1, kind: 'warm', size: 110, vx: dir * 300, vy: -20, life: 1.6, alpha: 0.6, layer: 'back' });
+        });
+        this.every('ash', 25, dt, () => fx.embers(fx.r(0, 1920), fx.r(200, 700), { n: 1, lift: -0.4, spread: 10 }));
+      }
+    }
+    drawBack(ctx, t) {
+      const d = t - this.t0 - this.det;
+      if (d <= 0) return;
+      const rise = U.easeOutCubic(Math.min(1, d / 2.6)), capY = U.lerp(GROUND - 120, 380, rise);
+      const fade = 1 - U.inv(2.6, 4.0, d);
+      // procedural mushroom body under the particle texture: dark rolling cap with a burning underside
+      const rx = U.lerp(90, 250, rise) * 1.25, ry = rx * 0.5, sa = 0.9 * fade;
+      const sg = ctx.createLinearGradient(this.X - 70, 0, this.X + 70, 0);
+      sg.addColorStop(0, 'rgba(50,30,20,0)'); sg.addColorStop(0.3, `rgba(90,45,22,${0.75 * sa})`);
+      sg.addColorStop(0.5, `rgba(255,150,60,${0.85 * sa})`); sg.addColorStop(0.7, `rgba(90,45,22,${0.75 * sa})`); sg.addColorStop(1, 'rgba(50,30,20,0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.moveTo(this.X - 34, capY); ctx.lineTo(this.X + 34, capY);
+      ctx.lineTo(this.X + 60 + (GROUND - capY) * 0.04, GROUND); ctx.lineTo(this.X - 60 - (GROUND - capY) * 0.04, GROUND); ctx.closePath();
+      ctx.fill();
+      const cg = ctx.createRadialGradient(this.X, capY + ry * 0.35, 0, this.X, capY, rx);
+      cg.addColorStop(0, `rgba(255,180,90,${0.95 * sa})`); cg.addColorStop(0.35, `rgba(200,80,30,${0.85 * sa})`);
+      cg.addColorStop(0.75, `rgba(48,26,18,${0.9 * sa})`); cg.addColorStop(1, 'rgba(30,20,16,0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.ellipse(this.X, capY, rx, ry, 0, 0, 6.283); ctx.fill();
+      // skirt ring around the stem
+      ctx.fillStyle = `rgba(70,40,26,${0.55 * sa})`;
+      ctx.beginPath(); ctx.ellipse(this.X, U.lerp(capY, GROUND, 0.45), rx * 0.5, ry * 0.3, 0, 0, 6.283); ctx.fill();
+      // glowing core of the cap + stem
+      P.glowSprite(ctx, WT.sprites.orange, this.X, capY, 700 * (0.6 + rise * 0.6), 0.6 * fade);
+      P.glowSprite(ctx, WT.sprites.hot, this.X, capY, 260, 0.6 * fade);
+      P.glowSprite(ctx, WT.sprites.orange, this.X, GROUND - 60, 900, 0.6 * fade);
+      // shockwave ellipse racing along the ground
+      if (d < 1.6) {
+        const k = d / 1.6, rx = 2400 * U.easeOutCubic(k);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(255,220,170,${0.8 * (1 - k)})`;
+        ctx.lineWidth = 16 * (1 - k) + 2;
+        ctx.beginPath(); ctx.ellipse(this.X, GROUND - 20, rx, rx * 0.12, 0, 0, 6.283); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,160,90,${0.5 * (1 - k)})`;
+        ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.arc(this.X, GROUND - 120, rx * 0.5, Math.PI, 0); ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    drawHud(ctx, t) {
+      const lt = t - this.t0, d = lt - this.det;
+      if (lt < this.det) {
+        // red alarm vignette + countdown
+        const pulse = 0.5 + 0.5 * Math.sin(lt * 14);
+        const g = ctx.createRadialGradient(960, 540, 380, 960, 540, 1150);
+        g.addColorStop(0, 'rgba(255,20,10,0)'); g.addColorStop(1, `rgba(255,20,10,${0.25 + 0.25 * pulse})`);
+        ctx.fillStyle = g; ctx.fillRect(-100, -100, 2120, 1280);
+        const n = Math.max(1, 3 - Math.floor(lt / 0.8)), k = (lt % 0.8) / 0.8;
+        ctx.save();
+        ctx.globalAlpha = 1 - k * 0.6;
+        ctx.translate(960, 290); ctx.scale(1.6 - 0.6 * U.easeOutCubic(k), 1.6 - 0.6 * U.easeOutCubic(k));
+        P.glowText(ctx, String(n), 0, 0, 170, RED, { glowColor: RED, core: '#ffd0c8', blur: 40 });
+        ctx.restore();
+        P.glowText(ctx, 'TACTICAL NUKE INCOMING', 960, 140, 48, RED, { glowColor: RED, core: '#ffe0d8', blur: 18 });
+      }
+      if (d > 0 && d < 1.2) {
+        const k = d / 1.2;
+        ctx.fillStyle = `rgba(255,252,240,${0.92 * Math.pow(1 - k, 2)})`;
+        ctx.fillRect(-100, -100, 2120, 1280);
+      }
+      if (d > 0 && d < 3.5) {
+        ctx.fillStyle = `rgba(255,110,40,${0.16 * (1 - d / 3.5)})`;
+        ctx.fillRect(-100, -100, 2120, 1280);
+      }
+    }
+  }
+
+  const KINDS = { supply: Supply, airstrike: Airstrike, chopper: Chopper, carpet: CarpetBomb, nuke: Nuke };
+
+  class StrikeManager {
+    constructor(fx, sound) { this.fx = fx; this.sound = sound; this.list = []; }
+    start(g, t0) {
+      const ks = WT.killstreakFor(g.giftCount), K = KINDS[ks.kind] || Supply;
+      const s = new K(this, g, t0, ks);
+      this.list.push(s);
+      return s;
+    }
+    update(t, dt) {
+      for (const s of this.list) if (t >= s.t0) s.update(t, dt);
+      this.list = this.list.filter((s) => t < s.t0 + s.dur + 0.5);
+    }
+    drawBack(ctx, t) { for (const s of this.list) if (t >= s.t0) s.drawBack(ctx, t); }
+    drawHud(ctx, t) {
+      for (const s of this.list) {
+        if (t < s.t0) continue;
+        s.drawHud(ctx, t);
+        this.drawCard(ctx, s, t);
+      }
+    }
+    // CoD-style killstreak card at the top of the screen.
+    drawCard(ctx, s, t) {
+      const lt = t - s.t0, nuke = s.ks.kind === 'nuke';
+      const cardT = nuke ? lt - s.det - 0.4 : lt; // nuke card appears after the white-out
+      const a = U.envelope(cardT, 0, 2.9, 0.2, 0.4);
+      if (a <= 0) return;
+      const w = 820, h = 128, x = 960 - w / 2;
+      const y = 120 - (1 - U.easeOutBack(U.inv(0, 0.3, cardT))) * 160;
+      const glitch = cardT < 0.25 ? (Math.sin(t * 190) * 14) : 0;
+      const col = nuke ? '#ffd23a' : s.ks.kind === 'supply' ? ACCENT : GOLD;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.translate(glitch, 0);
+      const bg = ctx.createLinearGradient(x, 0, x + w, 0);
+      bg.addColorStop(0, 'rgba(8,8,9,0.94)'); bg.addColorStop(1, 'rgba(20,14,10,0.9)');
+      ctx.fillStyle = bg;
+      U.chamfer(ctx, x, y, w, h, 14); ctx.fill();
+      ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 20; ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+      // icon tile
+      ctx.fillStyle = 'rgba(255,122,26,0.12)';
+      U.chamfer(ctx, x + 10, y + 10, h - 20, h - 20, 10); ctx.fill();
+      drawIcon(ctx, s.ks.kind, x + h / 2, y + h / 2, t);
+      // texts
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.font = `600 18px ${P.FONT_UI}`; ctx.fillStyle = '#ffb070';
+      const n = s.g.giftCount;
+      ctx.fillText(s.ks.kind === 'supply' ? `NEW SUB GIFTER  •  ×${n}` : `SUB BOMB  •  ×${n} GIFTED SUBS`, x + h + 8, y + 34);
+      U.fitFont(ctx, s.ks.label, w - h - 30, 54, P.FONT_STENCIL);
+      ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fillStyle = col; ctx.fillText(s.ks.label, x + h + 8, y + 86); ctx.restore();
+      ctx.fillStyle = '#f4efe6';
+      U.fitFont(ctx, `CALLED IN BY ${U.cleanName(s.g.username).toUpperCase()}`, w - h - 30, 20, P.FONT_UI, '700');
+      ctx.fillText(`CALLED IN BY ${U.cleanName(s.g.username).toUpperCase()}`, x + h + 8, y + 113);
+      // scanline sweep
+      const sw = U.inv(0, 0.6, cardT);
+      if (sw < 1) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,170,90,0.25)'; ctx.fillRect(x + w * sw - 40, y, 40, h); }
+      ctx.restore();
+    }
+  }
+
+  WT.StrikeManager = StrikeManager;
+  WT.drawJet = drawJet;
+  WT.drawHeli = drawHeli;
 })(window.WT);
 
 /* ---- js/train/wagons.js ---- */
@@ -1191,6 +1908,7 @@ window.WT = window.WT || {};
       x.translate(PAD, -SPR_TOP);
       this.paintChassis(x);
       this.paint(x);
+      P.weather(x, this.w, U.hash(this.kind + this.w), { holes: this.holes || 0 });
       this.sprite = c;
       return this;
     }
@@ -1241,6 +1959,7 @@ window.WT = window.WT || {};
       this.turret = new Gun({ px: 340, py: 672, len: 170, thick: 26, twin: true, dome: 40, rest: -0.1, maxRecoil: 26 });
       this.mg = new Gun({ px: 590, py: 688, len: 70, thick: 9, dome: 14, rest: -0.18, maxRecoil: 6 });
       this.guns = [this.turret, this.mg];
+      this.holes = 14;
     }
     paint(x) {
       const w = this.w;
@@ -1326,6 +2045,7 @@ window.WT = window.WT || {};
       this.g.username = U.cleanName(this.g.username);
       this.cannon = new Gun({ px: 330, py: 742, len: 280, thick: 32, coils: 3, dome: 66, rest: -0.12, maxRecoil: 40 });
       this.guns = [this.cannon];
+      this.holes = 6;
       this.Tc = 0;
       this.shotTimes = [];
       this.avatar = null;
@@ -1512,9 +2232,12 @@ window.WT = window.WT || {};
         ];
       } else if (theme === 'warzone') {
         this.guns = [new Gun({ px: 430, py: 728, len: 170, thick: 22, dome: 40, rest: -0.3, maxRecoil: 20, tone: 3 })];
+        this.fires = [[150, 714, 1.1]];
       } else {
         this.guns = [new Gun({ px: 470, py: 684, len: 90, thick: 12, dome: 18, rest: -0.25, maxRecoil: 8, tone: 2 })];
+        this.fires = [[300, 690, 0.7]];
       }
+      this.holes = theme === 'hype' ? 8 : 18;
     }
     paint(x) {
       const w = this.w, th = this.kind, L = WT.cfg.labels;
@@ -1609,6 +2332,7 @@ window.WT = window.WT || {};
         new Gun({ px: 410, py: 726, len: 320, thick: 40, dome: 84, rest: -0.2, maxRecoil: 46, coils: 3 }),
         new Gun({ px: 650, py: 752, len: 210, thick: 24, dome: 44, rest: -0.36, maxRecoil: 26, coils: 2 }),
       ];
+      this.holes = 10;
     }
     paint(x) {
       const w = this.w;
@@ -1649,6 +2373,8 @@ window.WT = window.WT || {};
     constructor() {
       super('caboose', 420, 1);
       this.guns = [new Gun({ px: 70, py: 690, len: 80, thick: 10, dome: 16, rest: -0.2, maxRecoil: 6, flip: true, tone: 1 })];
+      this.holes = 22;
+      this.fires = [[320, 702, 0.9]];
     }
     paint(x) {
       const w = this.w;
@@ -1709,8 +2435,17 @@ window.WT = window.WT || {};
       this.fx = ctrl.fx;
       this.sound = ctrl.sound;
       this.p = payload;
-      const n = payload.gifters.length;
-      const G = (this.G = Math.max(0, n - 1) * cfg.extraGifterSeconds);
+      // scene 3 timing: one slot per gifter, stretched for big SUB BOMB killstreaks
+      this.strikes = new WT.StrikeManager(this.fx, this.sound);
+      const slots = [];
+      let Tc = 5.5;
+      payload.gifters.forEach((g, i) => {
+        const ex = WT.killstreakFor(g.giftCount).extra || 0;
+        slots.push({ Tc, ex });
+        Tc += cfg.extraGifterSeconds + ex;
+      });
+      const last = slots[slots.length - 1];
+      const G = (this.G = last ? last.Tc - 5.5 + last.ex : 0);
       this.D = cfg.showDuration + G;
 
       // --- composition (front → rear) -------------------------------------
@@ -1733,9 +2468,9 @@ window.WT = window.WT || {};
       const ctr = (car, shift) => C + (shift || 0) - (car.left + car.w / 2);
       const K = [[0, -760], [1.2, 150], [3.0, ctr(this.loco)]];
       this.gifterCars.forEach((car, i) => {
-        const Tc = 5.5 + i * cfg.extraGifterSeconds;
-        K.push([Tc - 0.9, ctr(car, -75)], [Tc + 0.9, ctr(car, 75)]);
-        car.schedule(Tc);
+        const sl = slots[i];
+        K.push([sl.Tc - 0.9, ctr(car, -75)], [sl.Tc + 0.9 + sl.ex, ctr(car, 75)]);
+        car.schedule(sl.Tc);
       });
       K.push([8.3 + G, ctr(this.blackops)]);
       K.push([10.6 + G, ctr(this.art, -60)], [12.4 + G, ctr(this.art, 60)]);
@@ -1808,6 +2543,7 @@ window.WT = window.WT || {};
             });
             fx.blast(m.x, m.y, m.a, { target: [m.x + 470 + k * 60, m.y - 300 - k * 40], life: 0.55, gold: g.giftCount >= 10 || k === 0, scale: k === 0 ? 1.4 : 1, size: k === 0 ? 30 : 22 });
             if (k === 0) {
+              this.strikes.start(g, st + 0.05);
               this.ctrl.onGifterFired(g);
               this.sound.play('sting', { gain: 0.8 });
             }
@@ -1858,7 +2594,34 @@ window.WT = window.WT || {};
         this.ci++;
       }
       this.prevT = t;
+      this.strikes.update(t, dt);
       const fx = this.fx, D = this.D, off = this.off(t), v = this.vel(t);
+      // ambient battlefield: distant impacts, flak and burning damage on the wagons
+      const war = WT.cfg.warIntensity * U.envelope(t, 0.3, D - 1.8, 0.8, 1.2);
+      if (war > 0) {
+        this.every('farboom', 0.75 * war, dt, () => fx.groundBlast(fx.r(80, 1840), 930, fx.r(0.3, 0.5), { layer: 'back', shake: false }));
+        const flakOn = Math.sin(t * 1.7) > 0.2;
+        if (flakOn) {
+          if (!this.flakX || fx.rnd() < 0.01) this.flakX = fx.r(150, 1770);
+          this.every('flak', 14 * war, dt, () => fx.tracer(this.flakX + fx.r(-8, 8), 930, -1.25 + Math.sin(t * 2.3) * 0.25, { layer: 'back', speed: 1500, len: 70, life: 0.55, color: '255,110,50' }));
+        }
+        this.every('puff', 1.6 * war, dt, () => {
+          const x = fx.r(200, 1720), y = fx.r(250, 470);
+          fx.flash(x, y, 120, 0, { layer: 'back', life: 0.08, color: 'white', alpha: 0.6 });
+          fx.smoke(x, y, { n: 3, kind: 'soot', size: 34, spread: 10, vy: -10, jitter: 25, life: 2.2, alpha: 0.75, layer: 'back' });
+          fx.sparks(x, y, { n: 6, speed: 300, gravity: 300, life: 0.6 });
+        });
+      }
+      for (const car of this.cars) {
+        if (!car.fires) continue;
+        const sx = car.left + off;
+        if (sx > 2000 || sx + car.w < -100) continue;
+        const dy = car.bob(sx, t);
+        car.fires.forEach((f, i) => {
+          this.every(`fire${car.kind}${i}`, 22 * f[2], dt, () => fx.fire(sx + f[0], f[1] + dy, { n: 1, size: 20 * f[2], vx: -60, vy: -60, life: 0.7, spread: 10 * f[2] }));
+          this.every(`soot${car.kind}${i}`, 6 * f[2], dt, () => fx.smoke(sx + f[0], f[1] + dy - 20, { n: 1, kind: 'soot', size: 30 * f[2], vx: -80, vy: -70, life: 2, alpha: 0.7, layer: 'front' }));
+        });
+      }
       const acc = (this.vel(t + 0.05) - this.vel(t - 0.05)) / 0.1;
 
       // battlefield smoke banks — heavy at the start, thin later, none near the end so the loop is clean
@@ -1917,7 +2680,12 @@ window.WT = window.WT || {};
     draw(ctx, t) {
       const off = this.off(t), v = this.vel(t), D = this.D;
       const st = { t, wheelAng: off / P.WHEEL_R, speed: Math.abs(v), tailFade: 1 - U.inv(13.9 + this.G, 14.8 + this.G, t) };
+      const S = WT.cfg.trainScale || 1, Y = WT.cfg.railY;
+      ctx.save();
+      ctx.translate(C, Y); ctx.scale(S, S); ctx.translate(-C, -Y);
+      this.drawSearchlights(ctx, t);
       this.drawGround(ctx, t, off);
+      this.strikes.drawBack(ctx, t);
       this.fx.draw(ctx, 'back');
       this.drawBeam(ctx, t, off);
       const dys = [];
@@ -1936,7 +2704,25 @@ window.WT = window.WT || {};
         P.chain(ctx, x1, y + 6, x2, y + 6, 5);
       }
       this.fx.draw(ctx, 'front');
+      ctx.restore();
       this.drawHud(ctx, t);
+      this.strikes.drawHud(ctx, t);
+    }
+
+    drawSearchlights(ctx, t) {
+      const a = WT.cfg.warIntensity * U.envelope(t, 0.2, this.D - 1.5, 1, 1.2);
+      if (a <= 0) return;
+      ctx.globalCompositeOperation = 'lighter';
+      [[260, 0.6, 0.0], [1680, 0.5, 2.0], [980, 0.4, 4.1]].forEach(([x, sp, ph]) => {
+        const ang = -Math.PI / 2 + Math.sin(t * sp + ph) * 0.55, L = 1200;
+        const ex = x + Math.cos(ang) * L, ey = 940 + Math.sin(ang) * L;
+        const g = ctx.createLinearGradient(x, 940, ex, ey);
+        g.addColorStop(0, `rgba(255,225,180,${0.16 * a})`); g.addColorStop(1, 'rgba(255,200,150,0)');
+        ctx.fillStyle = g;
+        const nx = -Math.sin(ang), ny = Math.cos(ang);
+        ctx.beginPath(); ctx.moveTo(x - nx * 8, 940 - ny * 8); ctx.lineTo(ex - nx * 110, ey - ny * 110); ctx.lineTo(ex + nx * 110, ey + ny * 110); ctx.lineTo(x + nx * 8, 940 + ny * 8); ctx.fill();
+      });
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     drawGround(ctx, t, off) {

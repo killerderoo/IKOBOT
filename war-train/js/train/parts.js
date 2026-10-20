@@ -437,5 +437,53 @@ window.WT = window.WT || {};
     ctx.globalCompositeOperation = 'source-over';
   };
 
+  // Weathering pass, painted on top of a finished wagon sprite (only where armor already exists):
+  // fire-lit top, ambient occlusion, grime, rust streaks, scratches, grain and bullet holes.
+  P.weather = (x, w, seed, o) => {
+    o = o || {};
+    const r = U.rng(seed), top = 480, bot = 905;
+    x.save();
+    x.globalCompositeOperation = 'source-atop';
+    let g = x.createLinearGradient(0, 560, 0, 900);
+    g.addColorStop(0, 'rgba(255,140,60,0.13)');
+    g.addColorStop(0.45, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.38)');
+    x.fillStyle = g; x.fillRect(-60, top, w + 120, bot - top);
+    g = x.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0.28)'); g.addColorStop(0.45, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.16)');
+    x.fillStyle = g; x.fillRect(-60, top, w + 120, bot - top);
+    for (let i = 0; i < w / 14; i++) {
+      const cx = r() * w, cy = 600 + r() * 280, rr = 20 + r() * 50;
+      const rg = x.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      rg.addColorStop(0, `rgba(${r() < 0.3 ? '60,35,18' : '6,5,4'},${0.12 + r() * 0.16})`); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = rg; x.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+    }
+    for (let i = 0; i < w / 20; i++) {
+      const sx = r() * w, sy = 620 + r() * 230, len = 18 + r() * 70;
+      const sg = x.createLinearGradient(0, sy, 0, sy + len);
+      sg.addColorStop(0, `rgba(140,66,24,${0.35 + r() * 0.25})`); sg.addColorStop(1, 'rgba(140,66,24,0)');
+      x.fillStyle = sg; x.fillRect(sx, sy, 1.2 + r() * 3, len);
+    }
+    x.strokeStyle = 'rgba(210,214,220,0.16)';
+    x.lineWidth = 0.8;
+    for (let i = 0; i < w / 7; i++) {
+      const sx = r() * w, sy = 620 + r() * 240, a = (r() - 0.5) * 0.8, l = 4 + r() * 16;
+      x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + Math.cos(a) * l, sy + Math.sin(a) * l); x.stroke();
+    }
+    for (let i = 0; i < w * 6; i++) {
+      x.fillStyle = r() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.09)';
+      x.fillRect(r() * w, top + r() * (bot - top), 1.5, 1.5);
+    }
+    for (let i = 0; i < (o.holes || 0); i++) {
+      const cx = 30 + r() * (w - 60), cy = 700 + r() * 150, hr = 2.5 + r() * 3;
+      x.strokeStyle = 'rgba(0,0,0,0.6)'; x.lineWidth = 1;
+      for (let k = 0; k < 5; k++) { const a = r() * 6.283; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(a) * hr * 3, cy + Math.sin(a) * hr * 3); x.stroke(); }
+      x.fillStyle = 'rgba(150,150,150,0.18)'; x.beginPath(); x.arc(cx - 0.6, cy - 0.6, hr + 1.2, 0, 6.283); x.fill();
+      x.fillStyle = '#050505'; x.beginPath(); x.arc(cx, cy, hr * 0.8, 0, 6.283); x.fill();
+      if (r() < 0.15) { x.fillStyle = 'rgba(255,110,30,0.35)'; x.beginPath(); x.arc(cx, cy, hr * 0.45, 0, 6.283); x.fill(); }
+    }
+    x.restore();
+  };
+
   WT.P = P;
 })(window.WT);

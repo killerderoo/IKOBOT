@@ -44,6 +44,27 @@ EventSub. The render/test tools also need Playwright and ffmpeg.
 When several gifters ride in one pass (up to `maxGiftersPerRun`, default 3), each extra wagon adds
 `extraGifterSeconds` (2.2 s) to scene 3. Anyone beyond that rides the next pass.
 
+## SUB BOMB killstreaks
+
+Big gifts trigger a cinematic strike while the gifter's cannon wagon is on screen. The pass gets
+longer so the strike has time to play out, and each strike shows a killstreak card with the gifter's name.
+
+| Gifts | Killstreak | What happens | Extra pass time |
+|---|---|---|---|
+| 1–4 | REINFORCEMENTS | Killstreak card + cannon salute | 0 s |
+| 5+ | PRECISION AIRSTRIKE | 3 jets with contrails fire missiles into the horizon | +0.5 s |
+| 10+ | CHOPPER GUNNER | Attack helicopter with searchlight strafes the ground (minigun + rockets) | +1.4 s |
+| 25+ | CARPET BOMBING | Heavy bomber lays a wall of fire across the screen | +1.6 s |
+| 50+ | TACTICAL NUKE | Red alarm + 3-2-1 countdown, white-out flash, ground shockwave, mushroom cloud | +3.6 s |
+
+Thresholds, labels and timing are in `config.killstreaks`. The ambient battlefield (distant
+impacts, flak, searchlights) runs during every pass; `?war=0` turns it off and `?war=0.5` halves it.
+The train looks worn and battle-damaged (rust streaks, grime, scratches, bullet holes) and has burning
+damage on some wagons. Its size is set by `config.trainScale` (default 1.15).
+
+Render a showcase with every killstreak:
+`NODE_PATH=$(npm root -g) node tools/render-webm.cjs dist 30 5,10,25,50`
+
 ## Folder structure
 
 ```
@@ -55,7 +76,8 @@ war-train/
 ├─ js/core/util.js         math, easing, monotone motion spline, canvas helpers
 ├─ js/core/config.js       ALL settings + URL overrides
 ├─ js/core/sound.js        sound hooks (muted by default) + placeholder synth
-├─ js/fx/particles.js      smoke, steam, sparks, embers, tracers, flashes, blasts, shockwaves, shake
+├─ js/fx/particles.js      smoke, fire, debris, missiles, explosions, sparks, tracers, shockwaves, shake
+├─ js/fx/strikes.js        SUB BOMB killstreaks (jets, helicopter, bomber, nuke) + killstreak cards
 ├─ js/train/parts.js       procedural drawing kit (armor, rivets, wheels, cannons, skulls, crowns…)
 ├─ js/train/wagons.js      Locomotive, GifterCannonWagon, ThemedWagon, ArtilleryWagon, Caboose
 ├─ js/show/run.js          one train pass: composition, motion curve, the six scenes, HUD
@@ -101,6 +123,7 @@ alert, or loop it.
 | `sound` | `1` to enable | off |
 | `volume` | `0`–`1` | `0.5` |
 | `quality` | `high` / `low` | `high` |
+| `war` | `0`–`1` ambient battlefield intensity | `1` |
 | `maxGifters` | gifter wagons per pass | `3` |
 | `avatars` | `decapi` to look up avatars by username (public service, no token) | off |
 | `persist` | `0` to not remember totals/recent gifters | on |

@@ -46,6 +46,8 @@ window.WT = window.WT || {};
         red: radialSprite(255, 50, 30, 0.25),
         white: radialSprite(255, 240, 210, 0.2),
         gold: radialSprite(255, 200, 70, 0.25),
+        hot: radialSprite(255, 236, 170, 0.35),
+        soot: [smokeSprite(12, 11, 12, 8), smokeSprite(18, 15, 14, 9)],
       };
     }
 
@@ -80,7 +82,7 @@ window.WT = window.WT || {};
       o = o || {};
       const cnt = this.n(o.n || 4);
       for (let i = 0; i < cnt; i++) {
-        const set = o.kind === 'steam' ? this.sprites.steam : o.kind === 'warm' ? this.sprites.warm : this.sprites.smoke;
+        const set = o.kind === 'steam' ? this.sprites.steam : o.kind === 'warm' ? this.sprites.warm : o.kind === 'soot' ? this.sprites.soot : this.sprites.smoke;
         this.add({
           t: 'smoke', spr: set[(this.rnd() * set.length) | 0], layer: o.layer || 'back',
           x: x + this.r(-1, 1) * (o.spread || 10), y: y + this.r(-1, 1) * (o.spread || 10),
@@ -98,7 +100,7 @@ window.WT = window.WT || {};
       for (let i = 0; i < cnt; i++) {
         const a = (o.angle || -Math.PI / 2) + this.r(-1, 1) * (o.spread || Math.PI), sp = (o.speed || 500) * this.r(0.3, 1.1);
         this.add({
-          t: 'spark', x, y, vx: Math.cos(a) * sp + (o.vx || 0), vy: Math.sin(a) * sp, life: this.r(0.25, 0.8) * (o.life || 1),
+          t: 'spark', layer: o.layer || 'front', x, y, vx: Math.cos(a) * sp + (o.vx || 0), vy: Math.sin(a) * sp, life: this.r(0.25, 0.8) * (o.life || 1),
           g: o.gravity == null ? 900 : o.gravity, drag: 1.5, w: this.r(1.2, 2.6), color: o.color || (this.rnd() < 0.7 ? '255,170,60' : '255,240,200'),
         });
       }
@@ -165,7 +167,81 @@ window.WT = window.WT || {};
       this.sparks(x, y, { n: 26 * scale, angle, spread: 0.6, speed: 900 * scale, gravity: 500 });
       this.smoke(x, y, { n: 6 * scale, angle, vx: Math.cos(angle) * 160, vy: Math.sin(angle) * 160 - 30, size: 70 * scale, alpha: 0.75, layer: 'front', life: 2 });
       this.smoke(x, y, { n: 3, kind: 'warm', vx: Math.cos(angle) * 90, vy: -40, size: 60 * scale, alpha: 0.5, layer: 'front' });
-      this.ring(x, y, 90 * scale, { life: 0.3, w: 4 });
+      this.ring(x, y, 70 * scale, { life: 0.22, w: 2, color: '255,170,90' });
+    }
+
+    // ---- war effects ----------------------------------------------------
+    // Rising flames: white-hot core → orange → red, fading into soot.
+    fire(x, y, o) {
+      o = o || {};
+      const cnt = this.n(o.n || 3);
+      for (let i = 0; i < cnt; i++) {
+        this.add({
+          t: 'fire', layer: o.layer || 'front', x: x + this.r(-1, 1) * (o.spread || 8), y: y + this.r(-1, 1) * (o.spread || 8) * 0.5,
+          vx: (o.vx || 0) + this.r(-1, 1) * (o.jitter || 25), vy: (o.vy || -90) + this.r(-1, 1) * (o.jitter || 25),
+          size: (o.size || 26) * this.r(0.7, 1.3), life: (o.life || 0.8) * this.r(0.7, 1.2), g: o.g == null ? -120 : o.g, drag: o.drag || 1.2,
+          rot: this.r(0, 6.28),
+        });
+      }
+    }
+
+    debris(x, y, o) {
+      o = o || {};
+      const cnt = this.n(o.n || 8);
+      for (let i = 0; i < cnt; i++) {
+        const a = (o.angle == null ? -Math.PI / 2 : o.angle) + this.r(-1, 1) * (o.spread || 1.2), sp = (o.speed || 700) * this.r(0.35, 1);
+        this.add({
+          t: 'debris', layer: o.layer || 'front', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 1300, drag: 0.3,
+          life: this.r(0.9, 1.8), w: this.r(4, 12) * (o.scale || 1), h: this.r(3, 7) * (o.scale || 1), rot: this.r(0, 6.28), vr: this.r(-14, 14),
+          burning: this.rnd() < (o.burning == null ? 0.5 : o.burning),
+        });
+      }
+    }
+
+    // Missile with a smoke trail; explodes on arrival.
+    missile(x, y, tx, ty, o) {
+      o = o || {};
+      const life = o.life || 0.7;
+      this.add({ t: 'missile', layer: o.layer || 'front', x, y, vx: (tx - x) / life, vy: (ty - y) / life, life, drag: 0, end: o.end || 'explode', scale: o.scale || 1, endLayer: o.endLayer || 'back' });
+    }
+
+    // Airborne fireball.
+    explosion(x, y, s, o) {
+      o = o || {};
+      s = s || 1;
+      const layer = o.layer || 'front';
+      this.flash(x, y, 420 * s, 0, { life: 0.12, color: 'white', layer });
+      this.glow(x, y, 700 * s, { life: 0.5, alpha: 0.9, layer });
+      this.ring(x, y, 220 * s, { life: 0.4, w: 5 });
+      for (let i = 0; i < this.n(26 * s); i++) {
+        const a = this.r(0, 6.283), sp = this.r(60, 340) * s;
+        this.add({ t: 'fire', layer, x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, size: this.r(30, 60) * s, life: this.r(0.5, 1.1), g: -160, drag: 2.6, rot: this.r(0, 6.28) });
+      }
+      this.smoke(x, y, { n: 10 * s, size: 90 * s, spread: 50 * s, jitter: 90 * s, vy: -50, life: 3, alpha: 0.85, layer, grow: 2.2 });
+      this.debris(x, y, { n: 10 * s, speed: 800 * s, spread: Math.PI, layer: 'front', scale: Math.min(2, s) });
+      this.sparks(x, y, { n: 30 * s, speed: 900 * s, gravity: 700, life: 1.2 });
+      if (o.shake !== false) this.shake(8 * s, 0.3);
+    }
+
+    // Ground impact: fire column + dust skirt + debris arcs.
+    groundBlast(x, y, s, o) {
+      o = o || {};
+      s = s || 1;
+      const layer = o.layer || 'back';
+      this.flash(x, y - 40 * s, 460 * s, 0, { life: 0.12, color: 'white', layer });
+      this.glow(x, y - 60 * s, 800 * s, { life: 0.6, alpha: 0.85, layer });
+      for (let i = 0; i < this.n(30 * s); i++) {
+        const a = -Math.PI / 2 + this.r(-0.55, 0.55), sp = this.r(150, 620) * s;
+        this.add({ t: 'fire', layer, x: x + this.r(-20, 20) * s, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, size: this.r(34, 70) * s, life: this.r(0.6, 1.2), g: 80, drag: 1.8, rot: this.r(0, 6.28) });
+      }
+      // dust skirt rolling sideways along the ground
+      for (const dir of [-1, 1]) this.smoke(x, y - 10, { n: 5 * s, kind: 'warm', vx: dir * 260 * s, vy: -25, jitter: 40, size: 70 * s, life: 1.8, alpha: 0.6, layer, grow: 2 });
+      this.smoke(x, y - 120 * s, { n: 9 * s, kind: 'soot', size: 110 * s, spread: 60 * s, vy: -90, jitter: 50, life: 3.4, alpha: 0.9, layer, grow: 2.4 });
+      const near = o.near ? 'front' : layer; // impacts behind the train keep their debris behind it
+      this.debris(x, y - 10, { n: 12 * s, speed: 900 * s, spread: 0.9, layer: near, scale: Math.min(2, s) });
+      this.sparks(x, y - 20, { n: 24 * s, speed: 800 * s, spread: 0.9, gravity: 900, life: 1.3, layer: near });
+      this.embers(x, y - 80 * s, { n: 14 * s, spread: 60 * s, lift: 1.5, layer });
+      if (o.shake !== false) this.shake(9 * s, 0.35);
     }
 
     // ---- simulation -----------------------------------------------------
@@ -176,7 +252,7 @@ window.WT = window.WT || {};
         const q = cur[i];
         q.age += dt;
         if (q.age >= q.life) {
-          if (q.t === 'blast' && q.burst) bursts.push(q);
+          if ((q.t === 'blast' && q.burst) || q.end) bursts.push(q);
           continue;
         }
         if (q.vx !== undefined) {
@@ -185,6 +261,15 @@ window.WT = window.WT || {};
           q.vy += (q.g || 0) * dt;
           q.x += q.vx * dt; q.y += q.vy * dt;
         }
+        if (q.t === 'missile') {
+          // several puffs per frame along the path so the trail reads as one continuous plume
+          for (let k = 0; k < 4; k++) {
+            const f = k / 4;
+            this.add({ t: 'smoke', spr: this.sprites.steam[(this.rnd() * 2) | 0], layer: q.layer, x: q.x - q.vx * dt * f, y: q.y - q.vy * dt * f, vx: this.r(-8, 8), vy: this.r(-8, 3), size: 6 * q.scale, grow: 3, life: 1.0, alpha: 0.22, drag: 1, rot: this.r(0, 6), vr: 0 });
+          }
+        } else if (q.t === 'debris' && q.burning && this.rnd() < 0.6) {
+          this.add({ t: 'ember', x: q.x, y: q.y, vx: 0, vy: 0, life: 0.4, g: -20, drag: 1, size: 3, ph: 0, layer: q.layer });
+        }
         if (q.t === 'blast' && this.rnd() < 0.8) {
           this.add({ t: 'ember', x: q.x, y: q.y, vx: this.r(-40, 40), vy: this.r(-40, 40), life: this.r(0.3, 0.7), g: 0, drag: 1, size: this.r(2, 4), ph: 0, layer: 'front' });
         }
@@ -192,7 +277,11 @@ window.WT = window.WT || {};
         keep.push(q);
       }
       this.p = keep.concat(this.p);
-      for (const q of bursts) this.burst(q.x, q.y, q.scale, q.gold);
+      for (const q of bursts) {
+        if (q.end === 'explode') this.explosion(q.x, q.y, q.scale, { layer: q.endLayer });
+        else if (q.end === 'ground') this.groundBlast(q.x, q.y, q.scale, { layer: q.endLayer });
+        else this.burst(q.x, q.y, q.scale, q.gold);
+      }
       if (this.p.length > this.max) this.p.splice(0, this.p.length - this.max);
       if (this.shakeT > 0) this.shakeT -= dt;
       else this.shakeAmt *= Math.exp(-10 * dt);
@@ -281,6 +370,54 @@ window.WT = window.WT || {};
             ctx.arc(q.x, q.y, q.maxR * U.easeOutCubic(k), 0, Math.PI * 2);
             ctx.stroke();
             ctx.globalCompositeOperation = 'source-over';
+            break;
+          }
+          case 'fire': {
+            ctx.globalCompositeOperation = 'lighter';
+            const s = q.size * (0.6 + 0.9 * k);
+            const spr = k < 0.18 ? this.sprites.hot : k < 0.55 ? this.sprites.orange : this.sprites.red;
+            ctx.globalAlpha = (k < 0.1 ? k / 0.1 : 1 - (k - 0.1) / 0.9) * 0.9;
+            ctx.drawImage(spr, q.x - s, q.y - s * 1.2, s * 2, s * 2.4);
+            ctx.globalCompositeOperation = 'source-over';
+            if (k > 0.55) { // charred tip turning into soot
+              ctx.globalAlpha = (k - 0.55) * 0.9;
+              ctx.drawImage(this.sprites.soot[0], q.x - s, q.y - s, s * 2, s * 2);
+            }
+            break;
+          }
+          case 'debris': {
+            ctx.globalAlpha = 1 - Math.max(0, k - 0.7) / 0.3;
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.rotate(q.rot);
+            ctx.fillStyle = q.burning ? '#2a1a10' : '#15171a';
+            ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h);
+            if (q.burning) { ctx.fillStyle = 'rgba(255,120,30,0.9)'; ctx.fillRect(-q.w / 2, -q.h / 2, q.w * 0.4, q.h); }
+            ctx.restore();
+            break;
+          }
+          case 'missile': {
+            const sp = Math.hypot(q.vx, q.vy) || 1, ux = q.vx / sp, uy = q.vy / sp, L = 26 * q.scale;
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#2b2f34'; ctx.lineWidth = 5 * q.scale; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - ux * L, q.y - uy * L); ctx.stroke();
+            ctx.lineCap = 'butt';
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.drawImage(this.sprites.hot, q.x - ux * L - 14 * q.scale, q.y - uy * L - 14 * q.scale, 28 * q.scale, 28 * q.scale);
+            ctx.drawImage(this.sprites.orange, q.x - ux * L - 40 * q.scale, q.y - uy * L - 40 * q.scale, 80 * q.scale, 80 * q.scale);
+            ctx.globalCompositeOperation = 'source-over';
+            break;
+          }
+          case 'bomb': {
+            ctx.globalAlpha = 1;
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.rotate(Math.atan2(q.vy, q.vx));
+            ctx.fillStyle = '#1d2024';
+            U.roundRect(ctx, -14, -5, 26, 10, 5); ctx.fill();
+            ctx.fillStyle = '#3a3f45'; ctx.fillRect(-18, -6, 5, 12);
+            ctx.fillStyle = '#c0261a'; ctx.fillRect(4, -5, 2, 10);
+            ctx.restore();
             break;
           }
           case 'blast': {

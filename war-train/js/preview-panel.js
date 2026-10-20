@@ -18,8 +18,9 @@
     const actions = {
       gift1: () => send(M.gift(1)),
       gift5: () => send(M.gift(5)),
-      gift20: () => send(M.gift(20)),
-      gift100: () => send(M.gift(100, 'SupremeCommander_With_A_Long_Name'.slice(0, 25))),
+      gift10: () => send(M.gift(10)),
+      gift25: () => send(M.gift(25)),
+      gift50: () => send(M.gift(50, 'SupremeCommander_With_A_Long_Name'.slice(0, 25))),
       multi: () => { send(M.gift(1)); send(M.gift(5)); send(M.gift(10)); },
       burst: () => { const n = 'TripleTap'; send(M.gift(1, n)); setTimeout(() => send(M.gift(1, n)), 300); setTimeout(() => send(M.gift(3, n)), 700); },
       sub: () => send(M.sub()),

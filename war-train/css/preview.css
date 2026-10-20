@@ -30,3 +30,4 @@ input, select { background: #0e0e10; color: var(--text); border: 1px solid #3a3a
 .mono { font: 11px/1.5 ui-monospace, Menlo, monospace; color: #bdb6aa; }
 .log { max-height: 140px; overflow: auto; margin-top: 6px; white-space: pre-wrap; }
 @media (max-width: 700px) { #panel { width: calc(100vw - 24px); max-height: 45vh; top: auto; bottom: 12px; } }
+button.nuke { background: #3a1206; border-color: #ff3b1f; color: #ffd0c0; }

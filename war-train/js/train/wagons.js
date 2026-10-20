@@ -84,6 +84,7 @@ window.WT = window.WT || {};
       x.translate(PAD, -SPR_TOP);
       this.paintChassis(x);
       this.paint(x);
+      P.weather(x, this.w, U.hash(this.kind + this.w), { holes: this.holes || 0 });
       this.sprite = c;
       return this;
     }
@@ -134,6 +135,7 @@ window.WT = window.WT || {};
       this.turret = new Gun({ px: 340, py: 672, len: 170, thick: 26, twin: true, dome: 40, rest: -0.1, maxRecoil: 26 });
       this.mg = new Gun({ px: 590, py: 688, len: 70, thick: 9, dome: 14, rest: -0.18, maxRecoil: 6 });
       this.guns = [this.turret, this.mg];
+      this.holes = 14;
     }
     paint(x) {
       const w = this.w;
@@ -219,6 +221,7 @@ window.WT = window.WT || {};
       this.g.username = U.cleanName(this.g.username);
       this.cannon = new Gun({ px: 330, py: 742, len: 280, thick: 32, coils: 3, dome: 66, rest: -0.12, maxRecoil: 40 });
       this.guns = [this.cannon];
+      this.holes = 6;
       this.Tc = 0;
       this.shotTimes = [];
       this.avatar = null;
@@ -405,9 +408,12 @@ window.WT = window.WT || {};
         ];
       } else if (theme === 'warzone') {
         this.guns = [new Gun({ px: 430, py: 728, len: 170, thick: 22, dome: 40, rest: -0.3, maxRecoil: 20, tone: 3 })];
+        this.fires = [[150, 714, 1.1]];
       } else {
         this.guns = [new Gun({ px: 470, py: 684, len: 90, thick: 12, dome: 18, rest: -0.25, maxRecoil: 8, tone: 2 })];
+        this.fires = [[300, 690, 0.7]];
       }
+      this.holes = theme === 'hype' ? 8 : 18;
     }
     paint(x) {
       const w = this.w, th = this.kind, L = WT.cfg.labels;
@@ -502,6 +508,7 @@ window.WT = window.WT || {};
         new Gun({ px: 410, py: 726, len: 320, thick: 40, dome: 84, rest: -0.2, maxRecoil: 46, coils: 3 }),
         new Gun({ px: 650, py: 752, len: 210, thick: 24, dome: 44, rest: -0.36, maxRecoil: 26, coils: 2 }),
       ];
+      this.holes = 10;
     }
     paint(x) {
       const w = this.w;
@@ -542,6 +549,8 @@ window.WT = window.WT || {};
     constructor() {
       super('caboose', 420, 1);
       this.guns = [new Gun({ px: 70, py: 690, len: 80, thick: 10, dome: 16, rest: -0.2, maxRecoil: 6, flip: true, tone: 1 })];
+      this.holes = 22;
+      this.fires = [[320, 702, 0.9]];
     }
     paint(x) {
       const w = this.w;

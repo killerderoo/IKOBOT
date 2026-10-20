@@ -29,6 +29,7 @@ window.WT = window.WT || {};
     // Hook names: rumble, whistle, clank, cannon, reload, steam, sting
     play(name, opts) {
       if (!this.enabled) return;
+      if (opts && opts.delay) { const o = Object.assign({}, opts, { delay: 0 }); setTimeout(() => this.play(name, o), opts.delay * 1000); return; }
       const file = this.cfg.files && this.cfg.files[name];
       if (file) return this._playFile(file, opts);
       if (this.cfg.synth) this._synth(name, opts || {});
@@ -114,6 +115,39 @@ window.WT = window.WT || {};
         n.connect(hp).connect(g).connect(out);
         this._env(g, t, 0.03, 0.25 * gain, 0.8);
         n.start(t);
+      } else if (name === 'explosion') {
+        const n = this._noise(2.5), lp = filt('lowpass', 600), g = ac.createGain();
+        n.connect(lp).connect(g).connect(out);
+        this._env(g, t, 0.01, 1.0 * gain, 2.2);
+        n.start(t);
+        const o1 = ac.createOscillator(), g2 = ac.createGain();
+        o1.frequency.setValueAtTime(70, t); o1.frequency.exponentialRampToValueAtTime(22, t + 1.4);
+        o1.connect(g2).connect(out);
+        this._env(g2, t, 0.01, 0.9 * gain, 1.5);
+        o1.start(t); o1.stop(t + 1.8);
+      } else if (name === 'jet') {
+        const n = this._noise(2.4), bp = filt('bandpass', 400), g = ac.createGain();
+        bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(2400, t + 0.9); bp.frequency.exponentialRampToValueAtTime(250, t + 2.2);
+        n.connect(bp).connect(g).connect(out);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.7 * gain, t + 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+        n.start(t); n.stop(t + 2.4);
+      } else if (name === 'siren') {
+        const d = o.duration || 2.4, osc = ac.createOscillator(), g = ac.createGain();
+        osc.type = 'sawtooth';
+        for (let k = 0; k < d; k += 0.8) { osc.frequency.setValueAtTime(420, t + k); osc.frequency.linearRampToValueAtTime(880, t + k + 0.4); osc.frequency.linearRampToValueAtTime(420, t + k + 0.8); }
+        const lp = filt('lowpass', 1800);
+        osc.connect(lp).connect(g).connect(out);
+        g.gain.setValueAtTime(0.12 * gain, t); g.gain.setValueAtTime(0.12 * gain, t + d - 0.1); g.gain.linearRampToValueAtTime(0, t + d);
+        osc.start(t); osc.stop(t + d);
+      } else if (name === 'chopper' || name === 'minigun') {
+        const d = o.duration || 3, n = this._noise(d), f = filt(name === 'chopper' ? 'lowpass' : 'bandpass', name === 'chopper' ? 220 : 1400);
+        const g = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+        lfo.type = 'square'; lfo.frequency.value = name === 'chopper' ? 11 : 38;
+        lg.gain.value = 0.25 * gain;
+        g.gain.value = 0.3 * gain;
+        lfo.connect(lg).connect(g.gain);
+        n.connect(f).connect(g).connect(out);
+        n.start(t); n.stop(t + d); lfo.start(t); lfo.stop(t + d);
       } else if (name === 'sting') {
         [196, 247, 294, 392].forEach((f, i) => {
           const osc = ac.createOscillator(), g = ac.createGain(), lp = filt('lowpass', 2200);
