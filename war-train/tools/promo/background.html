@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Generic, brand-free "gameplay" backdrop for promo renders: dusk battlefield + simple shooter HUD + webcam frame.
+const c = document.getElementById('c'), x = c.getContext('2d');
+let s = 7; const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+// scene (drawn blurred, like motion in real footage)
+const sc = document.createElement('canvas'); sc.width = 1920; sc.height = 1080; const g = sc.getContext('2d');
+let grd = g.createLinearGradient(0, 0, 0, 1080);
+grd.addColorStop(0, '#2b2f3a'); grd.addColorStop(0.45, '#7a5a45'); grd.addColorStop(0.62, '#c47a45'); grd.addColorStop(0.66, '#4a4038'); grd.addColorStop(1, '#1d1b19');
+g.fillStyle = grd; g.fillRect(0, 0, 1920, 1080);
+const sun = g.createRadialGradient(1300, 640, 0, 1300, 640, 600); sun.addColorStop(0, 'rgba(255,190,120,0.7)'); sun.addColorStop(1, 'rgba(255,150,80,0)');
+g.fillStyle = sun; g.fillRect(0, 0, 1920, 1080);
+// mountains
+g.fillStyle = '#3c3530'; g.beginPath(); g.moveTo(0, 700);
+for (let i = 0; i <= 20; i++) g.lineTo(i * 96, 600 + Math.sin(i * 1.7) * 40 + r() * 50); g.lineTo(1920, 1080); g.lineTo(0, 1080); g.fill();
+// ruined city skyline
+g.fillStyle = '#26221f';
+for (let xx = 0; xx < 1920; xx += 40 + r() * 60) { const w = 30 + r() * 70, h = 60 + r() * 220; g.fillRect(xx, 700 - h, w, h + 400); if (r() < 0.4) { g.clearRect; g.fillStyle = '#3a2a20'; g.fillRect(xx + w * 0.2, 700 - h + 20, w * 0.2, 12); g.fillStyle = '#26221f'; } }
+// smoke plumes
+for (let i = 0; i < 5; i++) { const px = 200 + r() * 1500; for (let k = 0; k < 14; k++) { const rr = 40 + k * 12; const pg = g.createRadialGradient(px + k * 18, 640 - k * 38, 0, px + k * 18, 640 - k * 38, rr); pg.addColorStop(0, 'rgba(30,28,28,0.35)'); pg.addColorStop(1, 'rgba(30,28,28,0)'); g.fillStyle = pg; g.fillRect(px - 400, 0, 900, 900); } }
+// ground debris / foreground rubble
+g.fillStyle = '#151311'; g.beginPath(); g.moveTo(0, 880); for (let i = 0; i <= 24; i++) g.lineTo(i * 80, 860 + r() * 50); g.lineTo(1920, 1080); g.lineTo(0, 1080); g.fill();
+x.filter = 'blur(5px) saturate(0.85)'; x.drawImage(sc, 0, 0); x.filter = 'none';
+// vignette
+const v = x.createRadialGradient(960, 540, 400, 960, 540, 1150); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+x.fillStyle = v; x.fillRect(0, 0, 1920, 1080);
+// HUD: crosshair, minimap, ammo, health
+x.strokeStyle = 'rgba(255,255,255,0.75)'; x.lineWidth = 2;
+[[0, -1], [0, 1], [-1, 0], [1, 0]].forEach(([a, b]) => { x.beginPath(); x.moveTo(960 + a * 8, 540 + b * 8); x.lineTo(960 + a * 22, 540 + b * 22); x.stroke(); });
+x.fillStyle = 'rgba(10,12,14,0.55)'; x.beginPath(); x.arc(150, 150, 110, 0, 6.283); x.fill();
+x.strokeStyle = 'rgba(255,255,255,0.35)'; x.stroke();
+x.fillStyle = 'rgba(120,200,255,0.9)'; x.beginPath(); x.moveTo(150, 135); x.lineTo(160, 160); x.lineTo(140, 160); x.fill();
+x.fillStyle = 'rgba(255,80,60,0.9)'; [[100, 110], [205, 180], [180, 95]].forEach(([a, b]) => { x.beginPath(); x.arc(a, b, 5, 0, 6.283); x.fill(); });
+x.font = '600 26px sans-serif'; x.fillStyle = 'rgba(255,255,255,0.85)'; x.textAlign = 'right'; x.fillText('30 / 120', 1860, 1030);
+x.textAlign = 'left'; x.fillStyle = 'rgba(10,12,14,0.5)'; x.fillRect(60, 1010, 300, 14); x.fillStyle = 'rgba(120,230,140,0.9)'; x.fillRect(60, 1010, 230, 14);
+// webcam frame
+x.fillStyle = 'rgba(12,12,14,0.92)'; x.fillRect(1560, 40, 320, 190);
+const cam = x.createLinearGradient(1560, 40, 1880, 230); cam.addColorStop(0, '#2a2f38'); cam.addColorStop(1, '#14161a'); x.fillStyle = cam; x.fillRect(1566, 46, 308, 178);
+x.fillStyle = '#3a404a'; x.beginPath(); x.arc(1720, 120, 34, 0, 6.283); x.fill(); x.beginPath(); x.ellipse(1720, 225, 70, 52, 0, Math.PI, 0); x.fill();
+x.fillStyle = '#e02424'; x.fillRect(1576, 56, 56, 22); x.fillStyle = '#fff'; x.font = '700 15px sans-serif'; x.fillText('LIVE', 1586, 72);
+x.fillStyle = 'rgba(255,255,255,0.6)'; x.font = '500 14px sans-serif'; x.fillText('STREAMER CAM', 1760, 216);
+</script></body></html>

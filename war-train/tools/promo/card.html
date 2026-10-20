@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face { font-family: 'Black Ops One'; src: url('../../assets/fonts/BlackOpsOne-Regular.ttf'); }
+@font-face { font-family: 'Oswald'; src: url('../../assets/fonts/Oswald-500.ttf'); font-weight: 500; }
+@font-face { font-family: 'Oswald'; src: url('../../assets/fonts/Oswald-700.ttf'); font-weight: 700; }
+html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden; color: #f4efe6; font-family: Oswald, sans-serif; }
+.cap { position: absolute; left: 0; top: 262px; padding: 22px 46px 24px 70px; background: linear-gradient(90deg, rgba(6,6,7,0.9) 0%, rgba(6,6,7,0.78) 70%, rgba(6,6,7,0) 100%); border-left: 8px solid var(--a); min-width: 760px; }
+.cap.top { top: 36px; padding: 12px 40px 14px 50px; min-width: 0; }
+.kick { font-weight: 700; font-size: 26px; letter-spacing: 0.12em; color: var(--a); }
+.ttl { font-family: 'Black Ops One'; font-size: 74px; line-height: 1.05; text-shadow: 0 0 24px rgba(255,140,60,0.45); }
+.top .ttl { font-size: 40px; }
+.sub { font-weight: 500; font-size: 30px; color: #e6dccb; margin-top: 4px; }
+.center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.big { font-family: 'Black Ops One'; font-size: 190px; line-height: 1; letter-spacing: 0.04em; background: linear-gradient(180deg, #ffffff 0%, #c9d2dc 45%, #6c7884 55%, #e8edf2 100%); -webkit-background-clip: text; color: transparent; filter: drop-shadow(0 6px 0 #000) drop-shadow(0 0 30px rgba(255,122,26,0.55)); }
+.tag { font-weight: 700; font-size: 40px; letter-spacing: 0.3em; color: var(--a); margin-top: 18px; text-shadow: 0 0 18px rgba(0,0,0,0.9); }
+.line { width: 900px; height: 3px; background: var(--a); margin: 26px 0; box-shadow: 0 0 18px var(--a); }
+.small { font-size: 30px; color: #e6dccb; text-shadow: 0 2px 8px #000; }
+.panel { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(8,8,10,0.82) 0%, rgba(8,8,10,0.94) 70%); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 70px; margin-top: 30px; text-align: left; }
+.item { font-size: 34px; display: flex; align-items: center; gap: 18px; }
+.item b { color: var(--a); font-family: 'Black Ops One'; font-weight: 400; font-size: 34px; width: 46px; }
+.cta { margin-top: 34px; padding: 16px 48px; border: 3px solid var(--a); font-family: 'Black Ops One'; font-size: 44px; box-shadow: 0 0 26px var(--a), inset 0 0 20px rgba(255,122,26,0.25); background: rgba(10,10,12,0.8); }
+</style></head>
+<body><div id="root"></div>
+<script>
+const d = JSON.parse(new URLSearchParams(location.search).get('d'));
+document.documentElement.style.setProperty('--a', d.accent || '#ff7a1a');
+const R = document.getElementById('root');
+const esc = (t) => String(t || '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+if (d.type === 'caption' || d.type === 'top') {
+  R.innerHTML = `<div class="cap ${d.type === 'top' ? 'top' : ''}"><div class="kick">${esc(d.kicker)}</div><div class="ttl">${esc(d.title)}</div>${d.sub ? `<div class="sub">${esc(d.sub)}</div>` : ''}</div>`;
+} else if (d.type === 'title') {
+  R.innerHTML = `<div class="center"><div class="big">WAR TRAIN</div><div class="line"></div><div class="tag">${esc(d.title)}</div><div class="small" style="margin-top:14px">${esc(d.sub)}</div></div>`;
+} else if (d.type === 'features') {
+  R.innerHTML = `<div class="panel"></div><div class="center"><div class="ttl" style="font-size:80px">${esc(d.title)}</div><div class="line"></div><div class="grid">${d.items.map((t) => `<div class="item"><b>✓</b>${esc(t)}</div>`).join('')}</div></div>`;
+} else if (d.type === 'outro') {
+  R.innerHTML = `<div class="center"><div class="big" style="font-size:160px">WAR TRAIN</div><div class="tag">${esc(d.title)}</div><div class="cta">${esc(d.cta)}</div><div class="small" style="margin-top:22px">${esc(d.sub)}</div></div>`;
+}
+document.fonts.ready.then(() => { document.body.dataset.ready = '1'; });
+</script></body></html>

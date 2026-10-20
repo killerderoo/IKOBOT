@@ -218,6 +218,14 @@ This steps the deterministic simulation frame by frame in headless Chromium, exp
 alpha, and encodes `war-train-15s-alpha.webm` (VP9, `yuva420p`) plus `war-train-15s-preview.mp4`
 (H.264 on a dark background, for quick viewing).
 
+## Promo video
+
+`NODE_PATH=$(npm root -g) node tools/promo/promo.cjs dist en,nl` renders a sales video of about
+57 seconds in English and Dutch (`dist/war-train-promo-en.mp4` and `-nl.mp4`). It shows real
+overlay frames composited over a brand-free gameplay backdrop (`tools/promo/background.html`).
+Caption cards come from `tools/promo/card.html`. All texts are in `promo.cjs`, so you can change
+the wording or the contact line. The video has no sound; add music in any editor.
+
 ## What works and what is placeholder
 
 | Feature | Status |

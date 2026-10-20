@@ -8,7 +8,8 @@
     "build": "node tools/build.cjs",
     "render": "node tools/render-webm.cjs dist 60",
     "snapshots": "node tools/snapshots.cjs snapshots",
-    "test": "node tools/build.cjs && node tools/test-integrations.cjs"
+    "test": "node tools/build.cjs && node tools/test-integrations.cjs",
+    "promo": "node tools/promo/promo.cjs dist en,nl"
   },
   "devDependencies": {
     "playwright": "^1.56.1"
