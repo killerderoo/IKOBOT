@@ -1,0 +1,32 @@
+/* Preview-only chrome: never loaded by the OBS overlay. */
+:root { --accent: #ff7a1a; --panel: rgba(14, 14, 16, 0.92); --line: #2c2c30; --text: #e9e4da; }
+body.bg-checker { background: #555 repeating-conic-gradient(#3a3a3a 0 25%, #4a4a4a 0 50%) 0 0 / 32px 32px; }
+body.bg-black { background: #000; }
+body.bg-green { background: #00b140; }
+body.bg-game {
+  background:
+    radial-gradient(ellipse at 70% 30%, rgba(255, 170, 90, 0.35), transparent 50%),
+    linear-gradient(180deg, #5b6b78 0%, #8a8f86 45%, #4b4a3c 46%, #2d2b23 100%);
+}
+#panel {
+  position: fixed; top: 12px; right: 12px; width: 300px; max-height: calc(100vh - 24px); overflow: auto;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+  font: 13px/1.4 Oswald, system-ui, sans-serif; letter-spacing: 0.02em; z-index: 10;
+}
+#panel.collapsed section { display: none; }
+#panel header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+#panel header strong { font-family: 'Black Ops One', sans-serif; color: var(--accent); font-weight: 400; font-size: 16px; flex: 1; }
+#panel section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+#panel h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; color: #9a948a; font-weight: 500; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+button { background: #1f1f23; color: var(--text); border: 1px solid #3a3a40; border-radius: 5px; padding: 7px 8px; font: inherit; cursor: pointer; }
+button:hover { border-color: var(--accent); color: #fff; }
+button.wide { width: 100%; margin-top: 6px; background: #2a1a0e; border-color: #6a3a14; }
+button.ghost { background: transparent; }
+#collapse { padding: 0 8px; }
+.row { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+input, select { background: #0e0e10; color: var(--text); border: 1px solid #3a3a40; border-radius: 4px; padding: 5px 6px; font: inherit; min-width: 0; }
+#name { flex: 1; } #count { width: 64px; } #avatar { flex: 1; } select { flex: 1; }
+.mono { font: 11px/1.5 ui-monospace, Menlo, monospace; color: #bdb6aa; }
+.log { max-height: 140px; overflow: auto; margin-top: 6px; white-space: pre-wrap; }
+@media (max-width: 700px) { #panel { width: calc(100vw - 24px); max-height: 45vh; top: auto; bottom: 12px; } }

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>War Train Preview</title>
+  <link rel="stylesheet" href="css/overlay.css">
+  <link rel="stylesheet" href="css/preview.css">
+</head>
+<body class="bg-checker">
+  <div id="wt-stage"><canvas id="wt-canvas" width="1920" height="1080"></canvas></div>
+
+  <aside id="panel">
+    <header>
+      <strong>WAR TRAIN</strong><span id="fps">-- fps</span>
+      <button id="collapse" title="Hide panel">&minus;</button>
+    </header>
+    <section>
+      <h3>Mock Twitch events</h3>
+      <div class="grid">
+        <button data-ev="gift1">Gift 1 sub</button>
+        <button data-ev="gift5">Gift 5 subs</button>
+        <button data-ev="gift20">Gift 20 (bulk)</button>
+        <button data-ev="gift100">Gift 100</button>
+        <button data-ev="multi">3 gifters at once</button>
+        <button data-ev="burst">Same gifter ×3</button>
+        <button data-ev="sub">New sub</button>
+        <button data-ev="resub">Resub</button>
+        <button data-ev="hype">Hype level up</button>
+        <button data-ev="hypeEnd">Hype complete</button>
+      </div>
+      <label class="row">Custom gifter <input id="name" maxlength="25" placeholder="username"> <input id="count" type="number" min="1" max="1000" value="10"></label>
+      <label class="row">Avatar URL <input id="avatar" placeholder="https://… (optional)"></label>
+      <button id="custom" class="wide">Send custom gift</button>
+    </section>
+    <section>
+      <h3>Playback</h3>
+      <label class="row"><input type="checkbox" id="loop"> Loop demo when idle</label>
+      <label class="row"><input type="checkbox" id="sound"> Sound (muted by default)</label>
+      <label class="row">Background
+        <select id="bg"><option value="checker">Transparency checker</option><option value="game">Fake game footage</option><option value="black">Black</option><option value="green">Green</option></select>
+      </label>
+      <button id="replay" class="wide">Replay demo pass</button>
+      <button id="reset" class="wide ghost">Reset gifter stats</button>
+    </section>
+    <section>
+      <h3>Status</h3>
+      <div id="status" class="mono"></div>
+      <div id="log" class="mono log"></div>
+    </section>
+  </aside>
+
+  <script src="js/core/util.js"></script>
+  <script src="js/core/config.js"></script>
+  <script src="js/core/sound.js"></script>
+  <script src="js/fx/particles.js"></script>
+  <script src="js/train/parts.js"></script>
+  <script src="js/train/wagons.js"></script>
+  <script src="js/show/run.js"></script>
+  <script src="js/events/controller.js"></script>
+  <script src="js/events/adapters.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/preview-panel.js"></script>
+</body>
+</html>

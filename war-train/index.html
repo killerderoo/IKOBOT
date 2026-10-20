@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>War Train Overlay</title>
+  <link rel="stylesheet" href="css/overlay.css">
+</head>
+<body>
+  <!-- OBS Browser Source: 1920×1080, transparent. See README for URL parameters. -->
+  <div id="wt-stage"><canvas id="wt-canvas" width="1920" height="1080"></canvas></div>
+  <script src="js/core/util.js"></script>
+  <script src="js/core/config.js"></script>
+  <script src="js/core/sound.js"></script>
+  <script src="js/fx/particles.js"></script>
+  <script src="js/train/parts.js"></script>
+  <script src="js/train/wagons.js"></script>
+  <script src="js/show/run.js"></script>
+  <script src="js/events/controller.js"></script>
+  <script src="js/events/adapters.js"></script>
+  <script src="js/main.js"></script>
+  <script>WT.boot();</script>
+</body>
+</html>

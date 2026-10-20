@@ -1,0 +1,8 @@
+/* War Train — overlay page. The page and canvas stay fully transparent for OBS. */
+@font-face { font-family: 'Black Ops One'; src: url('../assets/fonts/BlackOpsOne-Regular.ttf') format('truetype'); font-weight: 400; font-display: block; }
+@font-face { font-family: 'Oswald'; src: url('../assets/fonts/Oswald-500.ttf') format('truetype'); font-weight: 500; font-display: block; }
+@font-face { font-family: 'Oswald'; src: url('../assets/fonts/Oswald-700.ttf') format('truetype'); font-weight: 700; font-display: block; }
+
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#wt-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+#wt-canvas { display: block; width: min(100vw, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9; background: transparent; }

@@ -1,0 +1,5 @@
+node_modules/
+server/.env
+snapshots/
+dist/*.webm
+dist/*.mp4

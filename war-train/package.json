@@ -1,0 +1,17 @@
+{
+  "name": "war-train-overlay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Animated Call of Duty-inspired War Train Twitch hype train overlay (HTML5 canvas, transparent, OBS-ready)",
+  "scripts": {
+    "start": "node server/server.mjs",
+    "build": "node tools/build.cjs",
+    "render": "node tools/render-webm.cjs dist 60",
+    "snapshots": "node tools/snapshots.cjs snapshots",
+    "test": "node tools/build.cjs && node tools/test-integrations.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  },
+  "license": "MIT"
+}
