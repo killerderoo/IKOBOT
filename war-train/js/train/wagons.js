@@ -6,7 +6,7 @@ window.WT = window.WT || {};
   'use strict';
   const U = WT.U, P = WT.P;
 
-  const SPR_TOP = 470, SPR_H = 440, PAD = 60;
+  const SPR_TOP = 470, SPR_H = 440, PAD = 60, RES = 2; // sprites are painted at 2× for crisp detail
   const ACCENT = '#ff7a1a', HOT = '#ff3b1f', GOLD = '#ffc840';
 
   // ---------------------------------------------------------------- Gun --
@@ -80,10 +80,13 @@ window.WT = window.WT || {};
       this.phase = U.hash(kind + width) % 100 / 16;
     }
     build() {
-      const c = U.canvas(this.w + PAD * 2, SPR_H), x = c.getContext('2d');
+      const c = U.canvas((this.w + PAD * 2) * RES, SPR_H * RES), x = c.getContext('2d');
+      x.scale(RES, RES);
       x.translate(PAD, -SPR_TOP);
       this.paintChassis(x);
+      P.underframe(x, this.w, this.trussBogies || this.bogies);
       this.paint(x);
+      if (this.detail) this.detail(x);
       P.weather(x, this.w, U.hash(this.kind + this.w), { holes: this.holes || 0 });
       this.sprite = c;
       return this;
@@ -113,25 +116,33 @@ window.WT = window.WT || {};
 
     draw(ctx, sx, st) {
       const dy = this.bob(sx, st.t);
-      for (const b of this.bogies) P.bogie(ctx, sx + b, st.wheelAng, st.speed);
+      this.drawUnder(ctx, sx, st);
+      const W = this.w + PAD * 2;
       if (st.speed > 420) {
         // cheap horizontal motion blur: a faint ghost trailing behind
         ctx.globalAlpha = U.clamp((st.speed - 420) / 900, 0, 0.3);
-        ctx.drawImage(this.sprite, sx - PAD - st.speed * 0.014, SPR_TOP + dy);
+        ctx.drawImage(this.sprite, sx - PAD - st.speed * 0.014, SPR_TOP + dy, W, SPR_H);
         ctx.globalAlpha = 1;
       }
-      ctx.drawImage(this.sprite, sx - PAD, SPR_TOP + dy);
+      ctx.drawImage(this.sprite, sx - PAD, SPR_TOP + dy, W, SPR_H);
       this.drawLive(ctx, sx, dy, st);
       return dy;
     }
-    drawLive(ctx, sx, dy, st) { for (const g of this.guns) g.draw(ctx, sx, dy, st.t); }
+    drawUnder(ctx, sx, st) { for (const b of this.bogies) P.bogie(ctx, sx + b, st.wheelAng, st.speed); }
+    drawLive(ctx, sx, dy, st) {
+      for (const g of this.guns) g.draw(ctx, sx, dy, st.t);
+      for (const a of this.antennas || []) P.antenna(ctx, sx + a[0], a[1] + dy, a[2], st.t + a[0], st.speed);
+    }
   }
 
   // --------------------------------------------------------- Locomotive --
   class Locomotive extends Car {
     constructor() {
       super('loco', 680, 0);
-      this.bogies = [90, 300, 560];
+      this.bogies = [90, 590];
+      this.trussBogies = [90];
+      this.drivers = [200, 290, 380];
+      this.antennas = [[232, 586, 70], [610, 700, 46]];
       this.turret = new Gun({ px: 340, py: 672, len: 170, thick: 26, twin: true, dome: 40, rest: -0.1, maxRecoil: 26 });
       this.mg = new Gun({ px: 590, py: 688, len: 70, thick: 9, dome: 14, rest: -0.18, maxRecoil: 6 });
       this.guns = [this.turret, this.mg];
@@ -155,7 +166,7 @@ window.WT = window.WT || {};
       }
       P.plate(x, 40, 676, 98, 180, { tone: 1, spacing: 20 });
       P.plate(x, 144, 676, 98, 180, { tone: 1, spacing: 20 });
-      P.stencil(x, 'WT-01', 141, 720, 30, '#d9d3c4');
+      P.stencil(x, 'WT-01', 193, 716, 28, '#d9d3c4', 'center', 86);
       P.hazard(x, 60, 800, 160, 14);
       // engine hull
       x.beginPath();
@@ -195,6 +206,62 @@ window.WT = window.WT || {};
       // neon underglow strip
       P.neon(x, 30, 862, w - 22, 862, 3, ACCENT);
     }
+    // Driving wheels with coupling rods, main rod, crosshead and steam cylinder.
+    drawUnder(ctx, sx, st) {
+      for (const b of this.bogies) P.bogie(ctx, sx + b, st.wheelAng, st.speed);
+      const R = 40, cy = P.WHEEL_Y + P.WHEEL_R - R, ang = (st.wheelAng * P.WHEEL_R) / R, cr = 14;
+      for (const d of this.drivers) P.wheel(ctx, sx + d, cy, R, ang, st.speed, { counterweight: true, spokes: 14 });
+      const pin = (d) => [sx + d + Math.cos(ang) * cr, cy + Math.sin(ang) * cr];
+      // steam cylinder + slide bar
+      ctx.fillStyle = P.metal(ctx, 888, 926, 1); U.roundRect(ctx, sx + 458, 890, 72, 34, 6); ctx.fill();
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
+      P.rivets(ctx, sx + 466, 896, 56, 14, 1.6); P.rivets(ctx, sx + 466, 918, 56, 14, 1.6);
+      ctx.fillStyle = '#2a2f35'; ctx.fillRect(sx + 418, 902, 44, 4);
+      // crosshead + piston rod
+      const chx = sx + 432 + Math.cos(ang) * cr;
+      ctx.fillStyle = '#6a717a'; ctx.fillRect(chx, 905, 30, 3);
+      ctx.fillStyle = '#3b4148'; U.roundRect(ctx, chx - 8, 900, 16, 14, 2); ctx.fill();
+      // main rod (driver 3 → crosshead) and coupling rod (all drivers)
+      const p3 = pin(this.drivers[2]), p1 = pin(this.drivers[0]);
+      const rod = (a, b, w) => {
+        ctx.strokeStyle = '#111316'; ctx.lineWidth = w + 2; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        ctx.strokeStyle = '#8a929b'; ctx.lineWidth = w; ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a[0], a[1] - w / 3); ctx.lineTo(b[0], b[1] - w / 3); ctx.stroke();
+      };
+      rod(p1, p3, 6);
+      rod(p3, [chx, 907], 7);
+      for (const d of this.drivers) { const p = pin(d); ctx.fillStyle = '#c9ced4'; ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, 6.283); ctx.fill(); ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(p[0], p[1], 1.6, 0, 6.283); ctx.fill(); }
+    }
+    detail(x) {
+      // cab: window grilles, door, roof rail, horns, vents, rear ladder, warning decal
+      x.strokeStyle = '#141618'; x.lineWidth = 2.5;
+      for (let i = 0; i < 3; i++) for (let k = 1; k < 4; k++) { x.beginPath(); x.moveTo(56 + i * 60 + k * 11.5, 636); x.lineTo(56 + i * 60 + k * 11.5, 658); x.stroke(); }
+      x.fillStyle = '#121416'; for (let i = 0; i < 3; i++) x.fillRect(52 + i * 60, 630, 54, 5); // armored visors
+      P.door(x, 52, 684, 76, 162, { window: true });
+      P.label(x, 158, 824, 70, 14, 'HIGH VOLTAGE');
+      P.handrail(x, 52, 226, 574, 12);
+      x.fillStyle = '#2a2f35';
+      for (const hx of [196, 214]) { x.beginPath(); x.moveTo(hx, 582); x.lineTo(hx + 18, 576); x.lineTo(hx + 18, 590); x.closePath(); x.fill(); }
+      P.louvre(x, 70, 574, 46, 12, 3);
+      P.ladder(x, 6, 640, 906, 14);
+      // engine hull: roof rail, running-board pipe, louvres, toolbox, spare track, bolts
+      P.handrail(x, 272, 566, 660, 16);
+      P.pipe(x, [[260, 850], [598, 850], [628, 834]], 4);
+      P.pipe(x, [[254, 704], [264, 704], [264, 720]], 3);
+      P.louvre(x, 498, 724, 86, 36, 6);
+      P.toolbox(x, 280, 820, 62, 26);
+      P.trackLinks(x, 365, 722, 8, true);
+      P.boltGrid(x, 278, 724, 80, 0, 16);
+      P.boltGrid(x, 498, 770, 86, 60, 21);
+      x.save(); x.font = `600 11px ${P.FONT_UI}`; x.fillStyle = 'rgba(220,214,200,0.75)'; x.textAlign = 'center';
+      x.fillText('7TH ARMORED RAIL DIV.', 428, 850); x.restore();
+      // caged headlight + red marker lamps on the nose
+      P.lampCage(x, 652, 742, 10, '#ffd9a0');
+      P.lampCage(x, 650, 806, 4, '#ff3b1f');
+      P.lampCage(x, 616, 806, 4, '#ff3b1f');
+      // stack bands
+      x.fillStyle = '#121416'; x.fillRect(496, 640, 34, 4); x.fillRect(496, 660, 34, 4);
+    }
     drawLive(ctx, sx, dy, st) {
       const t = st.t;
       P.flag(ctx, sx + 46, 500 + dy, 98, 84, 50, t, HOT);
@@ -222,6 +289,7 @@ window.WT = window.WT || {};
       this.cannon = new Gun({ px: 330, py: 742, len: 280, thick: 32, coils: 3, dome: 66, rest: -0.12, maxRecoil: 40 });
       this.guns = [this.cannon];
       this.holes = 6;
+      this.antennas = [[31, 690, 64]];
       this.Tc = 0;
       this.shotTimes = [];
       this.avatar = null;
@@ -286,6 +354,17 @@ window.WT = window.WT || {};
       // turret ring
       x.fillStyle = '#16191c'; U.roundRect(x, 246, 776, 170, 16, 6); x.fill();
       P.neon(x, 20, 866, w - 20, 866, 2, ACCENT);
+    }
+    detail(x) {
+      P.ladder(x, 6, 796, 906, 12);
+      P.jerrycan(x, 422, 756); P.jerrycan(x, 445, 756, '#3e4a2c');
+      x.strokeStyle = '#0d0e10'; x.lineWidth = 3;
+      x.beginPath(); x.moveTo(380, 784); x.quadraticCurveTo(420, 800, 470, 780); x.stroke();
+      P.lampCage(x, 31, 702, 4, '#ffb347');
+      P.boltGrid(x, 168, 796, 0, 66, 11);
+      P.boltGrid(x, 474, 796, 0, 66, 11);
+      x.fillStyle = '#1a1d21'; x.fillRect(250, 770, 160, 6);
+      P.rivets(x, 256, 773, 148, 12, 1.5);
     }
     drawAvatar(ctx, cx, cy, r, t) {
       // shield-shaped frame
@@ -414,6 +493,7 @@ window.WT = window.WT || {};
         this.fires = [[300, 690, 0.7]];
       }
       this.holes = theme === 'hype' ? 8 : 18;
+      this.antennas = theme === 'blackops' ? [[360, 690, 80]] : theme === 'warzone' ? [[500, 738, 74]] : [];
     }
     paint(x) {
       const w = this.w, th = this.kind, L = WT.cfg.labels;
@@ -452,6 +532,35 @@ window.WT = window.WT || {};
         x.fillStyle = '#16191c'; x.fillRect(88, 706, 6, 8); x.fillRect(236, 706, 6, 8);
       }
       P.neon(x, 20, 866, w - 20, 866, 2, th === 'blackops' ? HOT : ACCENT);
+    }
+    detail(x) {
+      const w = this.w;
+      if (this.kind === 'hype') {
+        P.handrail(x, 30, 530, 650, 22);
+        P.ladder(x, 532, 690, 906, 14);
+        P.louvre(x, 18, 806, 30, 44, 5);
+        P.louvre(x, 504, 806, 22, 44, 5);
+        P.pipe(x, [[18, 696], [540, 696]], 3);
+        P.toolbox(x, 250, 650, 64, 22);
+        P.louvre(x, 258, 654, 48, 12, 3);
+      } else if (this.kind === 'blackops') {
+        P.ladder(x, 14, 696, 906, 13);
+        P.handrail(x, 290, 440, 670, 20);
+        x.fillStyle = '#1b1d20'; x.beginPath(); x.ellipse(320, 690, 22, 9, 0, Math.PI, 0); x.fill();
+        x.fillStyle = '#2d3034'; x.fillRect(306, 684, 28, 3);
+        P.label(x, 450, 778, 92, 16, 'CLASSIFIED', '#b3261e');
+        P.pipe(x, [[20, 860], [540, 860]], 3, '#2f3338');
+        P.boltGrid(x, 22, 700, 0, 80, 16);
+        P.boltGrid(x, 538, 700, 0, 80, 16);
+      } else {
+        P.netting(x, 252, 728, 146, 36, 11);
+        P.jerrycan(x, 300, 702); P.jerrycan(x, 324, 704, '#3e4a2c');
+        P.toolbox(x, 476, 738, 46, 24);
+        x.fillStyle = '#ff3b1f'; x.fillRect(482, 744, 4, 4); x.fillStyle = '#5aff6a'; x.fillRect(490, 744, 4, 4);
+        P.ladder(x, 538, 766, 906, 12);
+        P.boltGrid(x, 20, 772, 0, 88, 14);
+        P.label(x, 40, 850, 120, 13, 'EXPLOSIVES  1.1D');
+      }
     }
     drawLive(ctx, sx, dy, st) {
       const t = st.t;
@@ -510,6 +619,19 @@ window.WT = window.WT || {};
       ];
       this.holes = 10;
     }
+    detail(x) {
+      P.handrail(x, 22, 798, 756, 20);
+      P.ladder(x, 10, 792, 906, 13);
+      P.shells(x, 236, 776, 3);
+      P.shells(x, 562, 776, 3);
+      P.toolbox(x, 718, 742, 72, 34);
+      P.louvre(x, 726, 748, 56, 20, 4);
+      P.pipe(x, [[292, 796], [292, 786], [528, 786], [528, 796]], 3, '#6b4a2a');
+      P.label(x, 92, 846, 120, 12, 'HIGH EXPLOSIVE');
+      P.label(x, 616, 846, 120, 12, 'HIGH EXPLOSIVE');
+      P.boltGrid(x, 20, 792, 0, 72, 14);
+      P.boltGrid(x, 800, 792, 0, 72, 14);
+    }
     paint(x) {
       const w = this.w;
       P.plate(x, 8, 784, w - 16, 88, { c: 12, spacing: 28 });
@@ -551,6 +673,23 @@ window.WT = window.WT || {};
       this.guns = [new Gun({ px: 70, py: 690, len: 80, thick: 10, dome: 16, rest: -0.2, maxRecoil: 6, flip: true, tone: 1 })];
       this.holes = 22;
       this.fires = [[320, 702, 0.9]];
+      this.antennas = [[270, 648, 70]];
+    }
+    detail(x) {
+      for (const wx of [40, 340]) {
+        x.fillStyle = '#060606'; x.fillRect(wx, 712, 40, 26);
+        x.fillStyle = 'rgba(255,140,50,0.6)'; x.fillRect(wx + 3, 726, 34, 4);
+        x.strokeStyle = '#1b1d20'; x.lineWidth = 2.5;
+        for (let k = 1; k < 4; k++) { x.beginPath(); x.moveTo(wx + k * 10, 712); x.lineTo(wx + k * 10, 738); x.stroke(); }
+        x.strokeStyle = '#000'; x.lineWidth = 1.5; x.strokeRect(wx, 712, 40, 26);
+      }
+      P.ladder(x, 394, 704, 906, 13);
+      P.handrail(x, 22, 140, 688, 12);
+      P.handrail(x, 290, 392, 688, 12);
+      x.fillStyle = P.metal(x, 662, 700, 1); x.fillRect(104, 664, 14, 36);
+      x.fillStyle = '#0b0c0d'; x.fillRect(100, 658, 22, 7);
+      P.lampCage(x, 30, 708, 4, '#ffb347');
+      P.toolbox(x, 60, 846, 58, 20);
     }
     paint(x) {
       const w = this.w;
